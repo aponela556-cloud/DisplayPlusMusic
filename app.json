@@ -27,6 +27,7 @@
         "https://api.spotify.com/v1/me/player/previous",
         "https://i.scdn.co",
         "https://lrclib.net/api/get",
+        "https://lrclib.net/api/search",
         "https://ko-fi.com/oliemanq"
       ]
     }

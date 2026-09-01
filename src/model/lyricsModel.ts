@@ -1,6 +1,18 @@
 import Song from './songModel';
 import spotifyPresenter from '../presenter/spotifyPresenter';
 import { storage } from '../utils/storage';
+import {
+    cleanArtistName,
+    cleanTrackTitle,
+    LrclibRecord,
+    LrclibTrackMetadata,
+    selectBestLyricsMatch,
+} from './lrclibMatching';
+
+const LRCLIB_CLIENT_HEADER = 'DisplayPlusMusic/2.6.0 (https://github.com/Oliemanq/DisplayPlusMusic)';
+const LRCLIB_REQUEST_INTERVAL_MS = 250;
+let lrclibRequestQueue: Promise<void> = Promise.resolve();
+let lastLrclibRequestFinishedAt = 0;
 
 type NavidromeCue = {
     start?: number;
@@ -37,6 +49,84 @@ type NavidromeLyricsResponse = {
 };
 
 type NavidromeLyricsList = NonNullable<NonNullable<NavidromeLyricsResponse['subsonic-response']>['lyricsList']>;
+
+function emptyLyrics() {
+    return {
+        plainLyrics: null,
+        syncedLyrics: null,
+        source: '' as const,
+    };
+}
+
+function delay(milliseconds: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function fetchLrclib(url: URL): Promise<Response> {
+    const request = lrclibRequestQueue.then(async () => {
+        const elapsed = Date.now() - lastLrclibRequestFinishedAt;
+        if (elapsed < LRCLIB_REQUEST_INTERVAL_MS) {
+            await delay(LRCLIB_REQUEST_INTERVAL_MS - elapsed);
+        }
+
+        const response = await fetch(url.toString(), {
+            headers: { 'Lrclib-Client': LRCLIB_CLIENT_HEADER },
+        });
+        lastLrclibRequestFinishedAt = Date.now();
+        return response;
+    });
+
+    lrclibRequestQueue = request.then(() => undefined, () => undefined);
+    return request;
+}
+
+async function fetchLrclibJson<T>(url: URL): Promise<T | null> {
+    const response = await fetchLrclib(url);
+    if (response.status === 404) return null;
+    if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        throw new Error(`LRCLIB rate limit reached${retryAfter ? `; retry after ${retryAfter}s` : ''}`);
+    }
+    if (!response.ok) {
+        throw new Error(`LRCLIB request failed with status ${response.status}`);
+    }
+    return response.json() as Promise<T>;
+}
+
+function createExactLyricsUrl(song: Song): URL {
+    const url = new URL('https://lrclib.net/api/get');
+    url.searchParams.set('track_name', song.title);
+    url.searchParams.set('artist_name', song.artist);
+    if (song.album && song.album !== 'None') {
+        url.searchParams.set('album_name', song.album);
+    }
+    if (song.durationSeconds > 0 && song.durationSeconds <= 3600) {
+        url.searchParams.set('duration', Math.round(song.durationSeconds).toString());
+    }
+    return url;
+}
+
+function createLyricsSearchUrl(title: string, artist: string): URL {
+    const url = new URL('https://lrclib.net/api/search');
+    url.searchParams.set('track_name', title);
+    url.searchParams.set('artist_name', artist);
+    return url;
+}
+
+function lrclibRecordKey(record: LrclibRecord): string {
+    if (typeof record.id === 'number') return `id:${record.id}`;
+    return [record.trackName ?? record.name, record.artistName, record.albumName, record.duration]
+        .map(value => String(value ?? '').trim().toLocaleLowerCase())
+        .join('|');
+}
+
+function lyricsFromLrclibRecord(record: LrclibRecord) {
+    return {
+        plainLyrics: record.plainLyrics ?? null,
+        syncedLyrics: record.syncedLyrics ?? null,
+        source: 'web' as const,
+    };
+}
 
 function buildNavidromeAuthParams(username: string, password: string): URLSearchParams {
     return new URLSearchParams({
@@ -177,43 +267,64 @@ async function fetchLyrics(song: Song) {
         console.error('Failed to fetch lyrics from Navidrome:', e);
     }
 
-    const url = new URL("https://lrclib.net/api/get");
-    url.searchParams.append("track_name", song.title);
-    url.searchParams.append("artist_name", song.artist);
-    if (song.album && song.album !== "None") {
-        url.searchParams.append("album_name", song.album);
-    }
-    if (song.durationSeconds > 0) {
-        url.searchParams.append("duration", Math.round(song.durationSeconds).toString());
-    }
-
     try {
-        const response = await fetch(url.toString());
+        const track: LrclibTrackMetadata = {
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            durationSeconds: song.durationSeconds,
+        };
+        const candidates = new Map<string, LrclibRecord>();
+        const exactRecord = await fetchLrclibJson<LrclibRecord>(createExactLyricsUrl(song));
 
-        if (!response.ok) {
-            console.log(`Lyrics not found for ${song.title} (${response.status})`);
-            return {
-                plainLyrics: null,
-                syncedLyrics: null
-                ,source: '' as const
-            };
+        if (exactRecord?.instrumental) {
+            console.log(`LRCLIB identifies ${song.title} as instrumental`);
+            return lyricsFromLrclibRecord(exactRecord);
+        }
+        if (exactRecord) {
+            candidates.set(lrclibRecordKey(exactRecord), exactRecord);
         }
 
-        const data = await response.json();
-        console.log(`Lyrics fetched for ${song.title} successfully:`, data.syncedLyrics ? "Has synced lyrics" : "Plain lyrics only");
+        let bestMatch = selectBestLyricsMatch([...candidates.values()], track);
+        if (bestMatch?.record.syncedLyrics) {
+            console.log(`Exact synced lyrics fetched for ${song.title}`);
+            return lyricsFromLrclibRecord(bestMatch.record);
+        }
 
-        return {
-            plainLyrics: data.plainLyrics,
-            syncedLyrics: data.syncedLyrics,
-            source: 'web' as const,
-        };
+        const cleanedTitle = cleanTrackTitle(song.title);
+        const cleanedArtist = cleanArtistName(song.artist);
+        const searchQueries = [
+            { title: song.title, artist: song.artist },
+            ...(cleanedTitle !== song.title || cleanedArtist !== song.artist
+                ? [{ title: cleanedTitle, artist: cleanedArtist }]
+                : []),
+        ];
+
+        for (const query of searchQueries) {
+            const records = await fetchLrclibJson<LrclibRecord[]>(
+                createLyricsSearchUrl(query.title, query.artist),
+            );
+            for (const record of records ?? []) {
+                candidates.set(lrclibRecordKey(record), record);
+            }
+
+            bestMatch = selectBestLyricsMatch([...candidates.values()], track);
+            if (bestMatch?.record.syncedLyrics) break;
+        }
+
+        if (!bestMatch) {
+            console.log(`Lyrics not found for ${song.title} after exact and fallback searches`);
+            return emptyLyrics();
+        }
+
+        console.log(
+            `Lyrics matched for ${song.title} (score ${bestMatch.score.toFixed(3)}, ` +
+            `${bestMatch.record.syncedLyrics ? 'synced' : 'plain'})`,
+        );
+        return lyricsFromLrclibRecord(bestMatch.record);
     } catch (e) {
-        console.error("Failed to fetch lyrics:", e);
-        return {
-            plainLyrics: null,
-            syncedLyrics: null
-            ,source: '' as const
-        };
+        console.error('Failed to fetch lyrics:', e);
+        return emptyLyrics();
     }
 }
 
