@@ -2,6 +2,7 @@ import { OsEventTypeList, waitForEvenAppBridge } from '@evenrealities/even_hub_s
 import spotifyPresenter from './spotifyPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { normalizeEvenHubEvent } from '../model/evenHubEventModel';
+import { requestImmediateViewRefresh } from '../view/GlassesView';
 
 export async function eventHandler() {
     const bridge = await waitForEvenAppBridge();
@@ -40,7 +41,9 @@ export async function eventHandler() {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
             if (selectedName === 'Start Sync' || selectedName === 'Resume Sync') {
-                await lyricsSyncPresenter.startSync();
+                if (await lyricsSyncPresenter.startSync()) {
+                    requestImmediateViewRefresh(spotifyPresenter.currentSong);
+                }
                 return;
             }
             const syncActionVisible = Boolean(lyricsSyncPresenter.getActionLabel());
@@ -51,12 +54,18 @@ export async function eventHandler() {
             ) {
                 // Simulator 0.6.2 emits only the list container identity on Click.
                 // In sync demo mode Start/Resume Sync is deliberately the first item.
-                await lyricsSyncPresenter.startSync();
+                if (await lyricsSyncPresenter.startSync()) {
+                    requestImmediateViewRefresh(spotifyPresenter.currentSong);
+                }
                 return;
             }
             switch (normalizedEvent.listEvent.currentSelectItemIndex) {
                 case 0:
-                    if (syncActionVisible) await lyricsSyncPresenter.startSync();
+                    if (syncActionVisible) {
+                        if (await lyricsSyncPresenter.startSync()) {
+                            requestImmediateViewRefresh(spotifyPresenter.currentSong);
+                        }
+                    }
                     else spotifyPresenter.song_back();
                     break;
                 case 1:

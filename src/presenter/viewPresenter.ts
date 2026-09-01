@@ -8,6 +8,7 @@ import playbackOffsetModel, { OFFSET_STEP_MS } from '../model/playbackOffsetMode
 import localLyricsStore, { LocalLyricsRecord, parsePlainLyrics } from '../model/localLyricsModel';
 import lyricsPresenter from './lyricsPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
+import { requestImmediateViewRefresh } from '../view/GlassesView';
 
 function escapeHtml(value: string): string {
     return value
@@ -65,7 +66,9 @@ class ViewPresenter {
         });
 
         document.getElementById('start-lyrics-sync')?.addEventListener('click', async () => {
-            await lyricsSyncPresenter.startSync();
+            if (await lyricsSyncPresenter.startSync()) {
+                requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            }
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
         });

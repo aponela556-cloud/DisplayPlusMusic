@@ -32,6 +32,7 @@ let imageRetryAt = 0;
 let lastSentSongInfoText = '';
 let lastSentPlaybackBarText = '';
 let lastSentSyncText = '';
+let pendingSong: Song | null = null;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
     return Promise.race([
@@ -109,16 +110,18 @@ function buildNormalConfig(
 function buildSyncConfig(content: string) {
     return {
         containerTotalNum: 1,
+        imageObject: [],
+        listObject: [],
         textObject: [new TextContainerProperty({
             xPosition: 0,
             yPosition: 0,
             width: MAX_WIDTH,
             height: MAX_HEIGHT,
-            borderRadius: 8,
-            borderWidth: 1,
-            paddingLength: 14,
+            borderRadius: 0,
+            borderWidth: 0,
+            paddingLength: 8,
             containerID: 10,
-            containerName: 'lyricsSyncEditor',
+            containerName: 'syncEditor',
             content,
             isEventCapture: 1,
         })],
@@ -151,7 +154,10 @@ async function sendImageAsync(song: Song): Promise<void> {
 }
 
 export async function createView(song: Song): Promise<void> {
-    if (isUpdating) return;
+    if (isUpdating) {
+        pendingSong = song;
+        return;
+    }
     isUpdating = true;
     try {
         if (!bridge) {
@@ -173,13 +179,17 @@ export async function createView(song: Song): Promise<void> {
             : buildNormalConfig(songInfoText, playbackBarText, showPlaybackButtons, syncActionLabel);
 
         if (isPageCreated && lastRenderedMode !== modeKey) {
-            const rebuilt = await withTimeout(
-                bridge.rebuildPageContainer(new RebuildPageContainer(buildConfig())),
-                5000,
-                false,
-            );
+            let rebuilt = false;
+            for (let attempt = 0; attempt < 3 && !rebuilt; attempt++) {
+                rebuilt = await withTimeout(
+                    bridge.rebuildPageContainer(new RebuildPageContainer(buildConfig())),
+                    5000,
+                    false,
+                );
+                if (!rebuilt && attempt < 2) await new Promise(resolve => setTimeout(resolve, 500));
+            }
             if (rebuilt) {
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 800));
                 lastRenderedMode = modeKey;
                 lastSongID = '';
                 imageRetryAt = 0;
@@ -209,7 +219,7 @@ export async function createView(song: Song): Promise<void> {
                 const ok = await withTimeout(
                     bridge.textContainerUpgrade(new TextContainerUpgrade({
                         containerID: 10,
-                        containerName: 'lyricsSyncEditor',
+                        containerName: 'syncEditor',
                         content: syncText,
                     })),
                     2000,
@@ -256,5 +266,12 @@ export async function createView(song: Song): Promise<void> {
         console.error('[GlassesView] createView error:', error);
     } finally {
         isUpdating = false;
+        const queuedSong = pendingSong;
+        pendingSong = null;
+        if (queuedSong) queueMicrotask(() => { void createView(queuedSong); });
     }
+}
+
+export function requestImmediateViewRefresh(song: Song): void {
+    void createView(song);
 }
