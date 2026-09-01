@@ -46,7 +46,8 @@ function buildNormalConfig(
     showPlaybackButtons: boolean,
     syncActionLabel: string,
 ) {
-    const itemNames = ['◁◁', ' ▷ll', '▷▷', ...(syncActionLabel ? [syncActionLabel] : [])];
+    const playbackItems = ['◁◁', ' ▷ll', '▷▷'];
+    const itemNames = syncActionLabel ? [syncActionLabel, ...playbackItems] : playbackItems;
     const listWidth = syncActionLabel ? 90 : 80;
     const songInfoX = showPlaybackButtons ? 155 + listWidth : 155;
     return {

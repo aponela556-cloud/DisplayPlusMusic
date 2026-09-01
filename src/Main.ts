@@ -15,7 +15,7 @@ async function main() {
     await playbackOffsetModel.init();
     await spotifyPresenter.initActiveSource();
 
-    pollingPresenter.startPolling();
+    await pollingPresenter.startPolling();
 
     eventHandler();
 

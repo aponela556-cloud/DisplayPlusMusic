@@ -1,16 +1,23 @@
 import { OsEventTypeList, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
 import spotifyPresenter from './spotifyPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
+import { normalizeEvenHubEvent } from '../model/evenHubEventModel';
 
 export async function eventHandler() {
     const bridge = await waitForEvenAppBridge();
 
     const unsubscribe = bridge.onEvenHubEvent(async event => {
-        const eventType = event.textEvent?.eventType ??
-            event.listEvent?.eventType ??
-            event.sysEvent?.eventType;
+        const normalizedEvent = normalizeEvenHubEvent(event);
+        const eventType = normalizedEvent.textEvent?.eventType ??
+            normalizedEvent.listEvent?.eventType ??
+            normalizedEvent.sysEvent?.eventType;
 
         if (lyricsSyncPresenter.isEditing()) {
+            if (eventType === undefined && normalizedEvent.textEvent) {
+                // Simulator 0.6.2 omits CLICK_EVENT for text containers.
+                await lyricsSyncPresenter.togglePlayback();
+                return;
+            }
             switch (eventType) {
                 case OsEventTypeList.CLICK_EVENT:
                     await lyricsSyncPresenter.togglePlayback();
@@ -29,25 +36,39 @@ export async function eventHandler() {
             }
         }
 
-        if (event.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
+        if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
-            const selectedName = event.listEvent.currentSelectItemName?.trim();
+            const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
             if (selectedName === 'Start Sync' || selectedName === 'Resume Sync') {
                 await lyricsSyncPresenter.startSync();
                 return;
             }
-            switch (event.listEvent.currentSelectItemIndex) {
+            const syncActionVisible = Boolean(lyricsSyncPresenter.getActionLabel());
+            if (
+                syncActionVisible &&
+                normalizedEvent.listEvent.currentSelectItemName === undefined &&
+                normalizedEvent.listEvent.currentSelectItemIndex === undefined
+            ) {
+                // Simulator 0.6.2 emits only the list container identity on Click.
+                // In sync demo mode Start/Resume Sync is deliberately the first item.
+                await lyricsSyncPresenter.startSync();
+                return;
+            }
+            switch (normalizedEvent.listEvent.currentSelectItemIndex) {
                 case 0:
-                    spotifyPresenter.song_back();
+                    if (syncActionVisible) await lyricsSyncPresenter.startSync();
+                    else spotifyPresenter.song_back();
                     break;
                 case 1:
-                    spotifyPresenter.song_pauseplay();
+                    if (syncActionVisible) spotifyPresenter.song_back();
+                    else spotifyPresenter.song_pauseplay();
                     break;
                 case 2:
-                    spotifyPresenter.song_forward();
+                    if (syncActionVisible) spotifyPresenter.song_pauseplay();
+                    else spotifyPresenter.song_forward();
                     break;
                 case 3:
-                    await lyricsSyncPresenter.startSync();
+                    if (syncActionVisible) spotifyPresenter.song_forward();
                     break;
             }
             return;
