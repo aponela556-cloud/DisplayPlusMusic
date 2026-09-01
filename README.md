@@ -11,6 +11,7 @@ DisplayPlus Music is a media viewer for the Even Hub, displaying the current pla
  - Album art
  - Playback progress
  - Realtime synced lyrics
+ - Resilient LRCLIB fallback matching for alternate releases, remasters, and live versions
  - Playback controls (Spotify only)
 
 
