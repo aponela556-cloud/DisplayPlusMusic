@@ -31,6 +31,11 @@ export async function eventHandler() {
 
         if (event.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
+            const selectedName = event.listEvent.currentSelectItemName?.trim();
+            if (selectedName === 'Start Sync' || selectedName === 'Resume Sync') {
+                await lyricsSyncPresenter.startSync();
+                return;
+            }
             switch (event.listEvent.currentSelectItemIndex) {
                 case 0:
                     spotifyPresenter.song_back();

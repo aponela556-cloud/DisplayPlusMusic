@@ -352,6 +352,7 @@ class ViewPresenter {
         if (activeControls) activeControls.style.display = editing ? 'flex' : 'none';
         if (status) {
             if (editing) status.textContent = lyricsSyncPresenter.getMessage() || 'Editing on glasses';
+            else if (lyricsSyncPresenter.getMessage()) status.textContent = lyricsSyncPresenter.getMessage();
             else if (actionLabel) status.textContent = 'Unsynced lyrics are ready for manual timing.';
             else if (lyricsPresenter.hasSyncedLyrics()) status.textContent = lyricsPresenter.getLyricsSourceLabel();
             else status.textContent = 'No editable lyrics for the current song.';
