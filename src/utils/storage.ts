@@ -10,6 +10,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 let bridgePromise: Promise<EvenAppBridge | null> | null = null;
 
 function getBridge(): Promise<EvenAppBridge | null> {
+    const nativeHandler = (window as Window & {
+        flutter_inappwebview?: { callHandler?: (...args: unknown[]) => Promise<unknown> };
+    }).flutter_inappwebview?.callHandler;
+    if (typeof nativeHandler !== 'function') return Promise.resolve(null);
     if (!bridgePromise) {
         bridgePromise = withTimeout(waitForEvenAppBridge(), 1000, null);
     }
@@ -21,7 +25,8 @@ export const storage = {
         try {
             const bridge = await getBridge();
             if (bridge) {
-                await bridge.setLocalStorage(key, value);
+                const saved = await withTimeout(bridge.setLocalStorage(key, value), 1000, false);
+                if (!saved) window.localStorage.setItem(key, value);
             } else {
                 window.localStorage.setItem(key, value);
             }
@@ -34,7 +39,8 @@ export const storage = {
         try {
             const bridge = await getBridge();
             if (bridge) {
-                return await bridge.getLocalStorage(key);
+                const stored = await withTimeout(bridge.getLocalStorage(key), 1000, null as string | null);
+                return stored ?? window.localStorage.getItem(key);
             } else {
                 return window.localStorage.getItem(key);
             }
@@ -47,7 +53,8 @@ export const storage = {
         try {
             const bridge = await getBridge();
             if (bridge) {
-                await bridge.setLocalStorage(key, "");
+                const removed = await withTimeout(bridge.setLocalStorage(key, ""), 1000, false);
+                if (!removed) window.localStorage.removeItem(key);
             } else {
                 window.localStorage.removeItem(key);
             }

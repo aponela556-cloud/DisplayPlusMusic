@@ -23,6 +23,7 @@
         "https://api.spotify.com/v1/me/player/queue",
         "https://api.spotify.com/v1/me/player/play",
         "https://api.spotify.com/v1/me/player/pause",
+        "https://api.spotify.com/v1/me/player/seek",
         "https://api.spotify.com/v1/me/player/next",
         "https://api.spotify.com/v1/me/player/previous",
         "https://i.scdn.co",

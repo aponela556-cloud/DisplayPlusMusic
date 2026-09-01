@@ -9,6 +9,7 @@ import {
     LrclibTrackMetadata,
     selectBestLyricsMatch,
 } from './lrclibMatching';
+import { SYNC_DEMO_PLAIN_LYRICS } from './syncDemoModel';
 
 const LRCLIB_CLIENT_HEADER = 'DisplayPlusMusic/2.6.0 (https://github.com/Oliemanq/DisplayPlusMusic)';
 const LRCLIB_REQUEST_INTERVAL_MS = 250;
@@ -242,6 +243,14 @@ async function fetchLyricsFromNavidrome(song: Song) {
 }
 
 async function fetchLyrics(song: Song) {
+    if (song.type === 'SyncDemo') {
+        return {
+            plainLyrics: SYNC_DEMO_PLAIN_LYRICS,
+            syncedLyrics: null,
+            source: 'web' as const,
+        };
+    }
+
     const title = song.title.trim().toLowerCase();
     const artist = song.artist.trim().toLowerCase();
 

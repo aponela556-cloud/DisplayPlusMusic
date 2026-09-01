@@ -1,4 +1,5 @@
 import { fetchLyrics } from '../model/lyricsModel';
+import localLyricsStore, { LyricsCandidate, resolveLyricsPriority } from '../model/localLyricsModel';
 import Song from '../model/songModel';
 import spotifyPresenter from './spotifyPresenter';
 
@@ -16,6 +17,8 @@ export interface LyricLine {
     wordsEndTime?: number;
 }
 
+type LyricsSource = 'local server' | 'local library' | 'web' | '';
+
 class LyricsPresenter {
   currentLine = '';
   nextLine = '';
@@ -27,12 +30,14 @@ class LyricsPresenter {
   private currentSongID = '';
   private plainLyrics = '';
   private syncedLyrics = '';
-  private currentLyricsSource: 'local server' | 'web' | '' = '';
+  private currentLyricsSource: LyricsSource = '';
+  private remoteSyncedLyricsAvailable = false;
 
   private nextSongID = '';
   private nextPlainLyrics = '';
   private nextSyncedLyrics = '';
-  private nextLyricsSource: 'local server' | 'web' | '' = '';
+  private nextLyricsSource: LyricsSource = '';
+  private nextRemoteSyncedLyricsAvailable = false;
 
   private isFetching = false;
   private currentIndex = 0;
@@ -55,6 +60,7 @@ class LyricsPresenter {
       this.plainLyrics = this.nextPlainLyrics;
       this.syncedLyrics = this.nextSyncedLyrics;
       this.currentLyricsSource = this.nextLyricsSource;
+      this.remoteSyncedLyricsAvailable = this.nextRemoteSyncedLyricsAvailable;
       this.currentIndex = 0;
       this.noLyricsShownUntil = null;
       return;
@@ -65,6 +71,7 @@ class LyricsPresenter {
     this.plainLyrics = '';
     this.syncedLyrics = '';
     this.currentLyricsSource = '';
+    this.remoteSyncedLyricsAvailable = false;
     this.currentIndex = 0;
     this.currentLine = '';
     this.nextLine = '';
@@ -74,12 +81,13 @@ class LyricsPresenter {
 
     this.isFetching = true;
     try {
-      const lyrics = await fetchLyrics(song);
+      const lyrics = await this.resolveLyrics(song);
       // Only apply if the song hasn't changed again while fetching
       if (this.currentSongID === song.songID) {
         this.plainLyrics = lyrics.plainLyrics ?? '';
         this.syncedLyrics = lyrics.syncedLyrics ?? '';
         this.currentLyricsSource = lyrics.source ?? '';
+        this.remoteSyncedLyricsAvailable = lyrics.remoteSynced;
       }
     } catch (e) {
       console.error('[LyricsPresenter] fetchLyrics error:', e);
@@ -99,10 +107,11 @@ class LyricsPresenter {
     this.nextSyncedLyrics = '';
     this.nextLyricsSource = '';
     try {
-      const lyrics = await fetchLyrics(nextSong);
+      const lyrics = await this.resolveLyrics(nextSong);
       this.nextPlainLyrics = lyrics.plainLyrics ?? '';
       this.nextSyncedLyrics = lyrics.syncedLyrics ?? '';
       this.nextLyricsSource = lyrics.source ?? '';
+      this.nextRemoteSyncedLyricsAvailable = lyrics.remoteSynced;
     } catch (e) {
       console.error('[LyricsPresenter] cacheNextLyrics error:', e);
     }
@@ -141,6 +150,31 @@ class LyricsPresenter {
     if (!this.currentLyricsSource) return '';
     const syncStatus = this.plainLyrics && !this.syncedLyrics ? ' (not synced)' : '';
     return `Lyrics from ${this.currentLyricsSource}${syncStatus}`;
+  }
+
+  getPlainLyrics(): string {
+    return this.plainLyrics;
+  }
+
+  hasSyncedLyrics(): boolean {
+    return Boolean(this.syncedLyrics);
+  }
+
+  hasRemoteSyncedLyrics(): boolean {
+    return this.remoteSyncedLyricsAvailable;
+  }
+
+  async refreshLyrics(song: Song): Promise<void> {
+    this.currentSongID = '';
+    await this.updateLyrics(song);
+  }
+
+  private async resolveLyrics(song: Song) {
+    const remoteLyrics = await fetchLyrics(song) as LyricsCandidate;
+    const localLyrics = spotifyPresenter.getActiveSource() === 'spotify'
+      ? await localLyricsStore.get(song.songID)
+      : null;
+    return resolveLyricsPriority(remoteLyrics, localLyrics);
   }
 
   async updateLyricsLine() {

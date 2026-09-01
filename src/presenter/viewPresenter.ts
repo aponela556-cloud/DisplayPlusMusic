@@ -5,6 +5,9 @@ import spotifyAuthModel from '../model/spotifyAuthModel';
 import Song from '../model/songModel';
 import { formatTime } from '../Scripts/formatTime';
 import playbackOffsetModel, { OFFSET_STEP_MS } from '../model/playbackOffsetModel';
+import localLyricsStore, { LocalLyricsRecord, parsePlainLyrics } from '../model/localLyricsModel';
+import lyricsPresenter from './lyricsPresenter';
+import lyricsSyncPresenter from './lyricsSyncPresenter';
 
 function escapeHtml(value: string): string {
     return value
@@ -27,6 +30,7 @@ class ViewPresenter {
         const navidromeFields = document.getElementById('navidrome-auth-fields');
         const clientList = document.getElementById('navidrome-client-list');
         const miniButtons = document.getElementById('mini-buttons-container');
+        const localLyricsList = document.getElementById('local-lyrics-list');
 
         const toggleAuthFields = () => {
             const source = sourceSelect?.value || 'spotify';
@@ -43,8 +47,8 @@ class ViewPresenter {
         document.getElementById('skip-track')?.addEventListener('click', () => {
             this.forwardTrack();
         });
-        document.getElementById('play-pause')?.addEventListener('click', () => {
-            this.playPauseTrack();
+        document.getElementById('play-pause')?.addEventListener('click', async () => {
+            await this.playPauseTrack();
         });
         document.getElementById('previous-track')?.addEventListener('click', () => {
             this.backTrack();
@@ -58,6 +62,69 @@ class ViewPresenter {
         });
         document.getElementById('playback-offset-value')?.addEventListener('click', () => {
             this.setPlaybackOffset(0);
+        });
+
+        document.getElementById('start-lyrics-sync')?.addEventListener('click', async () => {
+            await lyricsSyncPresenter.startSync();
+            this.renderLyricsSyncControls();
+            await this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('save-lyrics-sync')?.addEventListener('click', async () => {
+            await lyricsSyncPresenter.saveAndExit();
+            this.renderLyricsSyncControls();
+            await this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('cancel-lyrics-sync')?.addEventListener('click', async () => {
+            await lyricsSyncPresenter.cancelAndExit();
+            this.renderLyricsSyncControls();
+            await this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('refresh-local-lyrics')?.addEventListener('click', () => {
+            this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('copy-lrc')?.addEventListener('click', async () => {
+            const value = (document.getElementById('lrc-export-text') as HTMLTextAreaElement | null)?.value ?? '';
+            if (value) await this.copyText(value);
+        });
+        document.getElementById('close-lrc-export')?.addEventListener('click', () => {
+            const popup = document.getElementById('lrc-export-popup');
+            if (popup) popup.style.display = 'none';
+        });
+
+        localLyricsList?.addEventListener('click', async event => {
+            const button = (event.target as HTMLElement).closest('button[data-lyrics-action]') as HTMLButtonElement | null;
+            const action = button?.dataset.lyricsAction;
+            const trackId = button?.dataset.trackId;
+            if (!action || !trackId) return;
+            const record = await localLyricsStore.get(trackId);
+            if (!record) return;
+
+            if (action === 'sync') {
+                if (spotifyPresenter.currentSong.songID !== trackId) {
+                    alert('Play this song in Spotify before resuming its sync session.');
+                    return;
+                }
+                await lyricsSyncPresenter.startSync(record.status === 'complete');
+            } else if (action === 'export') {
+                this.downloadLrc(record);
+            } else if (action === 'copy') {
+                this.showLrcExport(record);
+                await this.copyText(record.syncedLyrics);
+            } else if (action === 'delete') {
+                if (!window.confirm(`Delete local lyrics for ${record.title}?`)) return;
+                await localLyricsStore.remove(trackId);
+                if (spotifyPresenter.currentSong.songID === trackId) {
+                    await lyricsPresenter.refreshLyrics(spotifyPresenter.currentSong);
+                    await lyricsSyncPresenter.prepareForSong(
+                        spotifyPresenter.currentSong,
+                        lyricsPresenter.getPlainLyrics(),
+                        lyricsPresenter.hasRemoteSyncedLyrics(),
+                        true,
+                    );
+                }
+            }
+            this.renderLyricsSyncControls();
+            await this.renderLocalLyricsLibrary();
         });
 
         playbackOffsetModel.init().then(() => this.renderPlaybackOffset());
@@ -119,6 +186,11 @@ class ViewPresenter {
             }
             toggleAuthFields();
         });
+        this.renderLocalLyricsLibrary();
+        window.addEventListener('localLyricsChanged', () => {
+            this.renderLyricsSyncControls();
+            this.renderLocalLyricsLibrary();
+        });
 
         // Make popup links copyable
         document.querySelectorAll('.popup-link').forEach(link => {
@@ -169,12 +241,19 @@ class ViewPresenter {
     }
 
     forwardTrack() {
+        if (lyricsSyncPresenter.isEditing()) return;
         spotifyPresenter.song_forward();
     }
-    playPauseTrack() {
+    async playPauseTrack(): Promise<void> {
+        if (lyricsSyncPresenter.isEditing()) {
+            await lyricsSyncPresenter.togglePlayback();
+            this.renderLyricsSyncControls();
+            return;
+        }
         spotifyPresenter.song_pauseplay();
     }
     backTrack() {
+        if (lyricsSyncPresenter.isEditing()) return;
         spotifyPresenter.song_back();
     }
 
@@ -242,6 +321,7 @@ class ViewPresenter {
             setText('song-current-time', formatTime(song.progressSeconds));
             setText('song-total-time', `${formatTime(song.durationSeconds)}`);
             this.renderNavidromeClients();
+            this.renderLyricsSyncControls();
 
             if (song.songID !== this.lastSongID) {
                 const imgElement = document.getElementById('album-art') as HTMLImageElement;
@@ -255,6 +335,94 @@ class ViewPresenter {
             }
         } catch (e) {
             console.error("[viewPresenter] updateHTML threw:", e);
+        }
+    }
+
+    renderLyricsSyncControls() {
+        const startButton = document.getElementById('start-lyrics-sync') as HTMLButtonElement | null;
+        const activeControls = document.getElementById('lyrics-sync-active-controls');
+        const status = document.getElementById('lyrics-sync-status');
+        const editing = lyricsSyncPresenter.isEditing();
+        const actionLabel = lyricsSyncPresenter.getActionLabel();
+
+        if (startButton) {
+            startButton.textContent = actionLabel || 'Start Sync';
+            startButton.style.display = !editing && actionLabel ? 'flex' : 'none';
+        }
+        if (activeControls) activeControls.style.display = editing ? 'flex' : 'none';
+        if (status) {
+            if (editing) status.textContent = lyricsSyncPresenter.getMessage() || 'Editing on glasses';
+            else if (actionLabel) status.textContent = 'Unsynced lyrics are ready for manual timing.';
+            else if (lyricsPresenter.hasSyncedLyrics()) status.textContent = lyricsPresenter.getLyricsSourceLabel();
+            else status.textContent = 'No editable lyrics for the current song.';
+        }
+    }
+
+    async renderLocalLyricsLibrary() {
+        const list = document.getElementById('local-lyrics-list');
+        if (!list) return;
+        const records = await localLyricsStore.list();
+        if (records.length === 0) {
+            list.innerHTML = '<p class="local-lyrics-empty">No local lyrics yet.</p>';
+            return;
+        }
+        list.innerHTML = records.map(record => {
+            const completed = record.status === 'complete';
+            const progress = `${record.lineTimestampsMs.length}/${parsePlainLyrics(record.plainLyrics).length} lines`;
+            return `
+                <article class="local-lyrics-card">
+                    <p class="local-lyrics-card-title">${escapeHtml(record.title)}</p>
+                    <p class="local-lyrics-card-meta">${escapeHtml(record.artist)} · ${record.status} · ${progress}</p>
+                    <div class="local-lyrics-actions">
+                        <button class="small-button" data-lyrics-action="sync" data-track-id="${escapeHtml(record.spotifyTrackId)}">${completed ? 'Re-sync' : 'Resume'}</button>
+                        ${completed ? `<button class="small-button accent" data-lyrics-action="export" data-track-id="${escapeHtml(record.spotifyTrackId)}">Export</button>` : ''}
+                        ${completed ? `<button class="small-button" data-lyrics-action="copy" data-track-id="${escapeHtml(record.spotifyTrackId)}">Copy</button>` : ''}
+                        <button class="small-button danger" data-lyrics-action="delete" data-track-id="${escapeHtml(record.spotifyTrackId)}">Delete</button>
+                    </div>
+                </article>`;
+        }).join('');
+    }
+
+    private showLrcExport(record: LocalLyricsRecord) {
+        const popup = document.getElementById('lrc-export-popup');
+        const title = document.getElementById('lrc-export-title');
+        const textArea = document.getElementById('lrc-export-text') as HTMLTextAreaElement | null;
+        if (title) title.textContent = `Export ${record.title}`;
+        if (textArea) textArea.value = record.syncedLyrics;
+        if (popup) popup.style.display = 'flex';
+    }
+
+    private downloadLrc(record: LocalLyricsRecord) {
+        this.showLrcExport(record);
+        const safeName = `${record.artist} - ${record.title}`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+        const blob = new Blob([record.syncedLyrics], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${safeName}.lrc`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    private async copyText(value: string): Promise<void> {
+        try {
+            if (navigator.clipboard?.writeText && window.isSecureContext) {
+                await navigator.clipboard.writeText(value);
+                return;
+            }
+            const textArea = document.createElement('textarea');
+            textArea.value = value;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            textArea.remove();
+        } catch (error) {
+            console.error('Failed to copy LRC:', error);
+            const textArea = document.getElementById('lrc-export-text') as HTMLTextAreaElement | null;
+            textArea?.focus();
+            textArea?.select();
         }
     }
 

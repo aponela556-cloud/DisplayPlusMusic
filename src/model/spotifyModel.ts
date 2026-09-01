@@ -95,16 +95,23 @@ class SpotifyModel {
     private lastSong = new Song();
     currentSong = new Song();
     deviceId = '';
+    private playbackAvailable = false;
+
+    isPlaybackAvailable(): boolean {
+        return this.playbackAvailable;
+    }
 
     async fetchCurrentTrack(): Promise<Song> {
         let result;
         try {
             result = await spotifysdk.player.getPlaybackState();
         } catch {
+            this.playbackAvailable = false;
             return song_placeholder;
         }
 
         if (!result?.device?.id) {
+            this.playbackAvailable = false;
             // Nothing playing — return last known song paused, or placeholder
             if (this.lastSong.songID !== '0') {
                 this.lastSong.addisPlaying(false);
@@ -117,6 +124,7 @@ class SpotifyModel {
             console.log(`Device ID: ${this.deviceId} → ${result.device.id}`);
             this.deviceId = result.device.id;
         }
+        this.playbackAvailable = true;
 
         if (!result.item) return song_placeholder;
 
@@ -234,6 +242,20 @@ class SpotifyModel {
             this.currentSong?.addisPlaying(true);
             await spotifysdk.player.startResumePlayback(this.deviceId);
         } catch (e) { console.error('Play failed:', e); }
+    }
+
+    async pauseAndSeekToBeginning(): Promise<boolean> {
+        if (!this.deviceId) return false;
+        try {
+            this.currentSong?.addisPlaying(false);
+            await spotifysdk.player.pausePlayback(this.deviceId);
+            await spotifysdk.player.seekToPosition(0, this.deviceId);
+            this.currentSong?.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
+            return true;
+        } catch (e) {
+            console.error('Pause and seek failed:', e);
+            return false;
+        }
     }
 
     async song_Back() {
