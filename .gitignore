@@ -13,6 +13,7 @@ out.ehpk
 *.sln.docstates
 *.env
 dist
+.displayplus-runtime/
 
 node_modules/*
 
