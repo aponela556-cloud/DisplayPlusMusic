@@ -5,7 +5,8 @@ param(
     [ValidateRange(0, 3600)]
     [int]$AutoStopSeconds = 0,
     [switch]$SkipDependencies,
-    [switch]$SkipQr
+    [switch]$SkipQr,
+    [switch]$SyncDemo
 )
 
 Set-StrictMode -Version Latest
@@ -134,6 +135,9 @@ try {
 
     $lanIp = Get-LanIpv4Address
     $pluginUrl = "http://${lanIp}:$Port"
+    if ($SyncDemo) {
+        $pluginUrl += "/?syncDemo=1"
+    }
     Write-Host "[2/4] LAN address: $lanIp"
 
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null

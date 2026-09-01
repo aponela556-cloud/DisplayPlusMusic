@@ -29,6 +29,8 @@ http://localhost:5173/?syncDemo=1
 
 The demo supports the simulator's Up, Down, Click, and Double Click events. A physical R1 is still required to validate real gesture timing and event de-duplication.
 
+On Windows, `Start-DisplayPlusMusic-SyncDemo.cmd` starts a LAN development server and displays a QR code for loading the same credential-free demo on a test phone. Keep the command window open during testing.
+
 
 ## Even hub testing QR code
 <img src="src/Assets/githubpagesQR.png" alt="QR Code" width="300" />
