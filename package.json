@@ -26,6 +26,7 @@
     "@evenrealities/even_hub_sdk": "^0.0.9",
     "@spotify/web-api-ts-sdk": "^1.2.0",
     "fs": "^0.0.1-security",
+    "opencc-js": "1.4.2",
     "playwright": "^1.58.2",
     "stream": "^0.0.3"
   },
