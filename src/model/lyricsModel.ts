@@ -4,6 +4,7 @@ import { storage } from '../utils/storage';
 import {
     cleanArtistName,
     cleanTrackTitle,
+    createChineseSearchVariants,
     LrclibRecord,
     LrclibTrackMetadata,
     selectBestLyricsMatch,
@@ -294,11 +295,14 @@ async function fetchLyrics(song: Song) {
         const cleanedTitle = cleanTrackTitle(song.title);
         const cleanedArtist = cleanArtistName(song.artist);
         const searchQueries = [
-            { title: song.title, artist: song.artist },
-            ...(cleanedTitle !== song.title || cleanedArtist !== song.artist
-                ? [{ title: cleanedTitle, artist: cleanedArtist }]
-                : []),
-        ];
+            ...createChineseSearchVariants(song.title, song.artist),
+            ...createChineseSearchVariants(cleanedTitle, cleanedArtist),
+        ].filter((query, index, queries) => {
+            const key = `${query.title.trim().toLocaleLowerCase()}|${query.artist.trim().toLocaleLowerCase()}`;
+            return queries.findIndex(candidate => (
+                `${candidate.title.trim().toLocaleLowerCase()}|${candidate.artist.trim().toLocaleLowerCase()}` === key
+            )) === index;
+        });
 
         for (const query of searchQueries) {
             const records = await fetchLrclibJson<LrclibRecord[]>(
