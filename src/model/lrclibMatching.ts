@@ -1,3 +1,5 @@
+import OpenCC from 'opencc-js/t2cn';
+
 export type LrclibRecord = {
     id?: number;
     name?: string;
@@ -9,6 +11,13 @@ export type LrclibRecord = {
     plainLyrics?: string | null;
     syncedLyrics?: string | null;
 };
+
+export type LrclibSearchQuery = {
+    title: string;
+    artist: string;
+};
+
+const traditionalToSimplified = OpenCC.Converter({ from: 'tw', to: 'cn' });
 
 export type LrclibTrackMetadata = {
     title: string;
@@ -96,6 +105,24 @@ export function cleanTrackTitle(title: string): string {
 export function cleanArtistName(artist: string): string {
     const [primaryArtist] = artist.split(/\s+(?:feat(?:uring)?\.?|ft\.?|with)\s+/iu);
     return primaryArtist.trim() || artist.trim();
+}
+
+/**
+ * LRCLIB metadata is community-supplied, so a Traditional Chinese Spotify title may
+ * only exist there in Simplified Chinese. Keep the original query first, then add a
+ * Simplified Chinese equivalent when conversion changes either field.
+ */
+export function createChineseSearchVariants(title: string, artist: string): LrclibSearchQuery[] {
+    const original = { title: title.trim(), artist: artist.trim() };
+    const simplified = {
+        title: traditionalToSimplified(original.title),
+        artist: traditionalToSimplified(original.artist),
+    };
+
+    if (simplified.title === original.title && simplified.artist === original.artist) {
+        return [original];
+    }
+    return [original, simplified];
 }
 
 function levenshteinDistance(left: string, right: string): number {

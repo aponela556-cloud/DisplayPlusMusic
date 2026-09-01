@@ -25,10 +25,12 @@ class LyricsPresenter {
   currentWordIndex = -1;
 
   private currentSongID = '';
+  private plainLyrics = '';
   private syncedLyrics = '';
   private currentLyricsSource: 'local server' | 'web' | '' = '';
 
   private nextSongID = '';
+  private nextPlainLyrics = '';
   private nextSyncedLyrics = '';
   private nextLyricsSource: 'local server' | 'web' | '' = '';
 
@@ -48,8 +50,9 @@ class LyricsPresenter {
     if (this.currentSongID === song.songID || this.isFetching) return;
 
     // Fast path: next song was pre-cached
-    if (this.nextSongID === song.songID && this.nextSyncedLyrics) {
+    if (this.nextSongID === song.songID && (this.nextSyncedLyrics || this.nextPlainLyrics)) {
       this.currentSongID = this.nextSongID;
+      this.plainLyrics = this.nextPlainLyrics;
       this.syncedLyrics = this.nextSyncedLyrics;
       this.currentLyricsSource = this.nextLyricsSource;
       this.currentIndex = 0;
@@ -59,6 +62,7 @@ class LyricsPresenter {
 
     // Clear stale lyrics immediately so the display doesn't show wrong song's lines
     this.currentSongID = song.songID;
+    this.plainLyrics = '';
     this.syncedLyrics = '';
     this.currentLyricsSource = '';
     this.currentIndex = 0;
@@ -73,6 +77,7 @@ class LyricsPresenter {
       const lyrics = await fetchLyrics(song);
       // Only apply if the song hasn't changed again while fetching
       if (this.currentSongID === song.songID) {
+        this.plainLyrics = lyrics.plainLyrics ?? '';
         this.syncedLyrics = lyrics.syncedLyrics ?? '';
         this.currentLyricsSource = lyrics.source ?? '';
       }
@@ -90,8 +95,12 @@ class LyricsPresenter {
     ) return;
 
     this.nextSongID = nextSong.songID;
+    this.nextPlainLyrics = '';
+    this.nextSyncedLyrics = '';
+    this.nextLyricsSource = '';
     try {
       const lyrics = await fetchLyrics(nextSong);
+      this.nextPlainLyrics = lyrics.plainLyrics ?? '';
       this.nextSyncedLyrics = lyrics.syncedLyrics ?? '';
       this.nextLyricsSource = lyrics.source ?? '';
     } catch (e) {
@@ -129,17 +138,22 @@ class LyricsPresenter {
   }
 
   getLyricsSourceLabel(): string {
-    return this.currentLyricsSource ? `Lyrics from ${this.currentLyricsSource}` : '';
+    if (!this.currentLyricsSource) return '';
+    const syncStatus = this.plainLyrics && !this.syncedLyrics ? ' (not synced)' : '';
+    return `Lyrics from ${this.currentLyricsSource}${syncStatus}`;
   }
 
   async updateLyricsLine() {
     try {
       if (!spotifyPresenter.currentSong || !this.syncedLyrics) {
+        const hasPlainLyrics = Boolean(spotifyPresenter.currentSong && this.plainLyrics);
         // Show "No Lyrics Found" briefly, then clear
-        if (this.noLyricsShownUntil === null) {
+        if (!hasPlainLyrics && this.noLyricsShownUntil === null) {
           this.noLyricsShownUntil = Date.now() + this.NO_LYRICS_DISPLAY_MS;
         }
-        this.currentLine = Date.now() < this.noLyricsShownUntil ? 'No Lyrics Found' : '';
+        this.currentLine = hasPlainLyrics
+          ? 'Unsynced Lyrics Only'
+          : Date.now() < (this.noLyricsShownUntil ?? 0) ? 'No Lyrics Found' : '';
         this.nextLine = '';
         this.currentLineWords = [];
         this.currentWordIndex = -1;
