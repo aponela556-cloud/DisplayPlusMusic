@@ -101,7 +101,7 @@ Push-Location $repoRoot
 
 try {
     if (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) {
-        throw "A previous DisplayPlus Music session was not closed. Run Stop-QR.cmd first."
+        throw "A previous DisplayPlus Music session was not closed. Run Stop-DisplayPlusMusic-Current.cmd first."
     }
 
     $npmPath = Find-CommandPath -Name "npm.cmd" -FallbackPaths @("C:\Program Files\nodejs\npm.cmd")
@@ -129,7 +129,7 @@ try {
     $occupiedPort = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -ne $occupiedPort) {
-        throw "Port $Port is already in use by PID $($occupiedPort.OwningProcess). Close the old development session or run Stop-QR.cmd."
+        throw "Port $Port is already in use by PID $($occupiedPort.OwningProcess). Close the old development session or run Stop-DisplayPlusMusic-Current.cmd."
     }
 
     $lanIp = Get-LanIpv4Address
