@@ -91,11 +91,13 @@ export async function initSpotify(): Promise<void> {
     }
 }
 
-class SpotifyModel {
+export class SpotifyModel {
     private lastSong = new Song();
     currentSong = new Song();
     deviceId = '';
     private playbackAvailable = false;
+
+    constructor(private readonly getSdk: () => SpotifyApi = () => spotifysdk) {}
 
     isPlaybackAvailable(): boolean {
         return this.playbackAvailable;
@@ -104,7 +106,7 @@ class SpotifyModel {
     async fetchCurrentTrack(): Promise<Song> {
         let result;
         try {
-            result = await spotifysdk.player.getPlaybackState();
+            result = await this.getSdk().player.getPlaybackState();
         } catch {
             this.playbackAvailable = false;
             return song_placeholder;
@@ -194,7 +196,7 @@ class SpotifyModel {
 
     async fetchNextTrack(): Promise<Song | undefined> {
         try {
-            const queue = await spotifysdk.player.getUsersQueue();
+            const queue = await this.getSdk().player.getUsersQueue();
             const next = queue?.queue?.[0];
             if (next?.type === 'track') {
                 const track = next as Track;
@@ -230,44 +232,100 @@ class SpotifyModel {
         }
     }
 
-    async song_Pause() {
+    async song_Pause(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
+            await this.getSdk().player.pausePlayback(targetDeviceId);
             this.currentSong?.addisPlaying(false);
-            await spotifysdk.player.pausePlayback(this.deviceId);
-        } catch (e) { console.error('Pause failed:', e); }
+            this.playbackAvailable = true;
+            return true;
+        } catch (e) {
+            console.error('Pause failed:', e);
+            this.playbackAvailable = false;
+            return false;
+        }
     }
 
-    async song_Play() {
+    async song_Play(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
+            await this.getSdk().player.startResumePlayback(targetDeviceId);
             this.currentSong?.addisPlaying(true);
-            await spotifysdk.player.startResumePlayback(this.deviceId);
-        } catch (e) { console.error('Play failed:', e); }
+            this.playbackAvailable = true;
+            return true;
+        } catch (e) {
+            console.error('Play failed:', e);
+            this.currentSong?.addisPlaying(false);
+            this.playbackAvailable = false;
+            return false;
+        }
     }
 
     async pauseAndSeekToBeginning(): Promise<boolean> {
-        if (!this.deviceId) return false;
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
+            await this.getSdk().player.pausePlayback(targetDeviceId);
+            await this.getSdk().player.seekToPosition(0, targetDeviceId);
             this.currentSong?.addisPlaying(false);
-            await spotifysdk.player.pausePlayback(this.deviceId);
-            await spotifysdk.player.seekToPosition(0, this.deviceId);
             this.currentSong?.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
+            this.playbackAvailable = true;
             return true;
         } catch (e) {
             console.error('Pause and seek failed:', e);
+            this.playbackAvailable = false;
             return false;
         }
     }
 
     async song_Back() {
         try {
-            await spotifysdk.player.skipToPrevious(this.deviceId);
+            await this.getSdk().player.skipToPrevious(this.deviceId);
         } catch (e) { console.error('Back failed:', e); }
     }
 
     async song_Forward() {
         try {
-            await spotifysdk.player.skipToNext(this.deviceId);
+            await this.getSdk().player.skipToNext(this.deviceId);
         } catch (e) { console.error('Forward failed:', e); }
+    }
+
+    private async resolvePlaybackDeviceId(): Promise<string> {
+        const sdk = this.getSdk();
+        const cachedDeviceId = this.deviceId;
+
+        try {
+            const playback = await sdk.player.getPlaybackState();
+            const activeDeviceId = playback?.device?.id;
+            if (activeDeviceId && !playback.device.is_restricted) {
+                this.deviceId = activeDeviceId;
+                this.playbackAvailable = true;
+                return activeDeviceId;
+            }
+        } catch (e) {
+            console.warn('Could not refresh Spotify playback state:', e);
+        }
+
+        try {
+            const response = await sdk.player.getAvailableDevices();
+            const devices = response?.devices ?? [];
+            const target = devices.find(device => device.is_active && device.id && !device.is_restricted)
+                ?? devices.find(device => device.id === cachedDeviceId && !device.is_restricted)
+                ?? devices.find(device => device.id && !device.is_restricted);
+            if (target?.id) {
+                this.deviceId = target.id;
+                this.playbackAvailable = true;
+                return target.id;
+            }
+        } catch (e) {
+            console.warn('Could not refresh Spotify devices:', e);
+        }
+
+        if (cachedDeviceId) return cachedDeviceId;
+        this.playbackAvailable = false;
+        return '';
     }
 }
 

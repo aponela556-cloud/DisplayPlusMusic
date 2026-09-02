@@ -20,6 +20,7 @@
         "https://accounts.spotify.com/api/token",
         "https://api.spotify.com/v1/",
         "https://api.spotify.com/v1/me/player",
+        "https://api.spotify.com/v1/me/player/devices",
         "https://api.spotify.com/v1/me/player/queue",
         "https://api.spotify.com/v1/me/player/play",
         "https://api.spotify.com/v1/me/player/pause",

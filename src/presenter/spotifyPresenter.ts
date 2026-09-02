@@ -112,22 +112,23 @@ class SpotifyPresenter {
         this.currentSong = await navidromeModel.fetchCurrentTrack();
     }
 
-    async pausePlayback(): Promise<void> {
+    async pausePlayback(): Promise<boolean> {
         if (this.syncDemoMode) {
             this.currentSong.addisPlaying(false);
-            return;
+            return true;
         }
-        if (this.activeSource === 'spotify') await spotifyModel.song_Pause();
+        if (this.activeSource === 'spotify') return spotifyModel.song_Pause();
+        return false;
     }
 
-    async togglePlayback(): Promise<void> {
+    async togglePlayback(): Promise<boolean> {
         if (this.syncDemoMode) {
             this.currentSong.toggleisPlaying();
-            return;
+            return true;
         }
-        if (this.activeSource !== 'spotify') return;
-        if (this.currentSong.isPlaying) await spotifyModel.song_Pause();
-        else await spotifyModel.song_Play();
+        if (this.activeSource !== 'spotify') return false;
+        if (this.currentSong.isPlaying) return spotifyModel.song_Pause();
+        return spotifyModel.song_Play();
     }
 
     async pauseAndSeekToBeginning(): Promise<boolean> {

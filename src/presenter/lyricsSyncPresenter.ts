@@ -146,10 +146,18 @@ class LyricsSyncPresenter {
         return true;
     }
 
-    async togglePlayback(): Promise<void> {
-        if (!this.editing || !this.isCurrentSongValid() || !this.isPlaybackReady()) return;
-        await spotifyPresenter.togglePlayback();
+    async togglePlayback(): Promise<boolean> {
+        if (!this.editing || !this.isCurrentSongValid()) return false;
+        const wasPlaying = Boolean(spotifyPresenter.currentSong.isPlaying);
+        const succeeded = await spotifyPresenter.togglePlayback();
+        if (!succeeded) {
+            this.message = wasPlaying
+                ? 'Spotify could not pause playback - retry'
+                : 'Spotify could not start playback - open Spotify once and retry';
+            return false;
+        }
         this.message = spotifyPresenter.currentSong.isPlaying ? 'Playing - tap MARK for the current line' : 'Paused';
+        return true;
     }
 
     async markCurrentLine(): Promise<boolean> {
