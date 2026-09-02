@@ -1,17 +1,17 @@
 {
-  "name": "displayplus-music",
-  "version": "1.1.2",
-  "description": "Music display for the Even G2 smart glasses",
-  "homepage": "https://github.com/Oliemanq/DisplayPlusMusic#readme",
+  "name": "displaylyric-music",
+  "version": "2.6.1",
+  "description": "Music and local LRC sync for Even Hub",
+  "homepage": "https://github.com/aponela556-cloud/DisplayLyricMusic#readme",
   "bugs": {
-    "url": "https://github.com/Oliemanq/DisplayPlusMusic/issues"
+    "url": "https://github.com/aponela556-cloud/DisplayLyricMusic/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Oliemanq/DisplayPlusMusic.git"
+    "url": "git+https://github.com/aponela556-cloud/DisplayLyricMusic.git"
   },
   "license": "ISC",
-  "author": "Oliemanq",
+  "author": "aponela556",
   "type": "commonjs",
   "main": "index.js",
   "scripts": {

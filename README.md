@@ -1,36 +1,38 @@
-# DisplayPlus Music
-DisplayPlus Music is a media viewer for the Even Hub, displaying the current playing media on any device!
+# DisplayLyric Music
+
+DisplayLyric Music is a private, independent music viewer for Even Hub. It shows the current track, album art, playback progress, lyrics, Spotify playback controls, and local LRC timing tools.
 
 ## Supported services
- - Spotify (premium subscription required)
- - Navidrome (popular self hosted media service)
-     - Your server must be on at least **version 0.62**, along with a compatible client that implements the new PlaybackReport extension, such as the Web UI, Feishin on MacOS/Windows/Linux, Arpeggi on iOS, and Symphoniom on Android. Unsupported clients will cause weird playback state issues
 
-## The app includes:
- - Song info (title, artist, etc.)
- - Album art
- - Playback progress
- - Realtime synced lyrics
- - Resilient LRCLIB fallback matching for alternate releases, remasters, live versions, and Traditional/Simplified Chinese titles
- - Clear status when only non-timestamped lyrics are available
- - Playback controls (Spotify only)
+- Spotify (Premium required for playback controls)
+- Navidrome (version 0.62 or later with a compatible PlaybackReport client)
 
-## Local lyrics sync (development feature)
+## Local LRC timing
 
-When LRCLIB only has plain lyrics for the current Spotify track, the phone view shows **Create LRC** (or **Continue LRC** for a saved draft). Starting the editor pauses Spotify and seeks to the beginning. The phone provides Mark, Undo, Play/Pause, Save, and Cancel controls. Each Mark records the current line and advances the glasses display to the next line.
+When LRCLIB provides only plain lyrics, the phone view offers **Create LRC** or **Continue LRC**. The editor pauses Spotify and seeks to the start, then provides Play/Pause, Mark, Undo, Save, and Cancel controls. Completed local LRC files are stored in Even Hub private storage and can be exported or copied for LRCGET.
 
-The glasses keep their original three playback controls during normal playback. While timing lyrics, they become a display-only editor showing the previous, current, and next lines; ring and temple events do not modify timestamps. Completed lyrics are stored in the Even Hub app's private local storage and take priority over remote plain lyrics. Remote synced lyrics always remain the first choice. The phone view can continue or restart a draft, save or cancel an editing session, and download or copy a completed UTF-8 LRC file for LRCGET.
-
-To test without Spotify credentials, start the development server and open:
+For a credential-free test, start `Start-DisplayLyricMusic-SyncDemo.cmd` and scan its QR code. The demo URL is also available at:
 
 ```text
 http://localhost:5173/?syncDemo=1
 ```
 
-The demo can exercise the full phone-controlled timing flow without Spotify credentials. The Even Hub simulator verifies the automatic switch between the original playback layout and the display-only editor; a physical G2 is still required to validate the final screen rebuild behavior.
+## Spotify setup
 
-On Windows, `Start-DisplayPlusMusic-SyncDemo.cmd` starts a LAN development server and displays a QR code for loading the same credential-free demo on a test phone. Keep the command window open during testing.
+This project currently uses the existing OAuth callback:
 
+```text
+https://oliemanq.github.io/DisplayPlusMusic/
+```
 
-## Even hub testing QR code
-<img src="src/Assets/githubpagesQR.png" alt="QR Code" width="300" />
+Keep that exact URI in your Spotify Developer Dashboard until DisplayLyric Music has its own deployed callback and the dashboard configuration is changed at the same time.
+
+## Origin and licensing
+
+DisplayLyric Music contains modified portions based on [DisplayPlus Music](https://github.com/Oliemanq/DisplayPlusMusic) by Oliemanq. The upstream package metadata declares the ISC License. See [NOTICE.md](NOTICE.md) for attribution and [LICENSE](LICENSE) for the ISC terms applying to original DisplayLyric Music contributions.
+
+DisplayLyric Music is independent and is not affiliated with or endorsed by Oliemanq, Spotify, or Even Realities.
+
+## Copyright and takedown requests
+
+If you believe material in this project infringes your copyright or other rights, email [aponela556@gmail.com](mailto:aponela556@gmail.com). Include the relevant material, the rights claimed, and contact information. Reports will be reviewed promptly and material will be removed or disabled where appropriate. See [COPYRIGHT.md](COPYRIGHT.md).

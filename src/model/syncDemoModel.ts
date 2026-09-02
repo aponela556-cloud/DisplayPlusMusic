@@ -11,9 +11,9 @@ The final line completes the draft`;
 export function createSyncDemoSong(): Song {
     const song = new Song();
     song.type = 'SyncDemo';
-    song.addID('displayplus-sync-demo');
+    song.addID('displaylyric-sync-demo');
     song.addTitle('Local Lyrics Sync Demo');
-    song.addArtist('DisplayPlus Music');
+    song.addArtist('DisplayLyric Music');
     song.addAlbum('Development Mode');
     song.addDurationSeconds(60);
     song.addProgressSeconds(30);

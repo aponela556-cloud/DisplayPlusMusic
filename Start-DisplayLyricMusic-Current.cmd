@@ -2,6 +2,6 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-qr.ps1"
 if errorlevel 1 (
   echo.
-  echo DisplayPlus Music QR setup failed. Review the message above.
+  echo DisplayLyric Music QR setup failed. Review the message above.
   pause
 )

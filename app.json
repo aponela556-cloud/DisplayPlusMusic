@@ -1,14 +1,14 @@
 {
-  "package_id": "com.oliemanq.displayplusmusic",
+  "package_id": "com.aponela556.displaylyricmusic",
   "edition": "202601",
-  "name": "DisplayPlus Music",
-  "author": "oliemanq",
-  "version": "2.6.0",
+  "name": "DisplayLyric Music",
+  "author": "aponela556",
+  "version": "2.6.1",
   "min_app_version": "2.2.9",
   "min_sdk_version": "0.0.14",
   "entrypoint": "index.html",
-  "tagline": "Music player for Even Hub",
-  "description": "Media player for the Even Hub, displays progress and lyrics from multiple sources across devices.",
+  "tagline": "Music and local LRC sync for Even Hub",
+  "description": "Music viewer for Even Hub with playback controls, synced lyrics, and local LRC timing tools.",
   "permissions": [
     {
       "name": "network",
@@ -29,8 +29,7 @@
         "https://api.spotify.com/v1/me/player/previous",
         "https://i.scdn.co",
         "https://lrclib.net/api/get",
-        "https://lrclib.net/api/search",
-        "https://ko-fi.com/oliemanq"
+        "https://lrclib.net/api/search"
       ]
     }
   ],

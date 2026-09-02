@@ -111,7 +111,7 @@ export function buildLrc(record: Pick<LocalLyricsRecord,
         `[ar:${safeMetadata(record.artist)}]`,
         `[al:${safeMetadata(record.album)}]`,
         `[length:${durationText}]`,
-        '[by:DisplayPlus Music]',
+        '[by:DisplayLyric Music]',
     ];
     const timedLines = record.lineTimestampsMs
         .slice(0, lines.length)
