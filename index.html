@@ -90,14 +90,25 @@
     <section id="lyrics-sync-panel" class="sync-panel">
         <div class="sync-panel-header">
             <div>
-                <h2>Local Lyrics Sync</h2>
+                <h2>LRC Timing</h2>
                 <p id="lyrics-sync-status">No editable lyrics for the current song.</p>
             </div>
-            <button class="small-button accent sync-main-action" id="start-lyrics-sync" style="display: none;">Start Sync</button>
+            <button class="small-button accent sync-main-action" id="start-lyrics-sync" style="display: none;">Create LRC</button>
         </div>
-        <div id="lyrics-sync-active-controls" class="sync-active-controls" style="display: none;">
-            <button class="small-button accent" id="save-lyrics-sync">Save</button>
-            <button class="small-button danger" id="cancel-lyrics-sync">Cancel</button>
+        <div id="lyrics-sync-active-controls" class="sync-editor" style="display: none;">
+            <p id="lyrics-sync-progress" class="sync-editor-progress">Line 0 / 0</p>
+            <p id="lyrics-sync-previous-line" class="sync-editor-context-line"></p>
+            <p id="lyrics-sync-current-line" class="sync-editor-current-line" aria-live="polite"></p>
+            <p id="lyrics-sync-next-line" class="sync-editor-context-line"></p>
+            <button class="small-button accent sync-mark-action" id="mark-lyrics-sync" disabled>MARK</button>
+            <div class="sync-editor-control-row">
+                <button class="small-button" id="undo-lyrics-sync" disabled>Undo</button>
+                <button class="small-button" id="toggle-lyrics-sync-playback">Play</button>
+            </div>
+            <div class="sync-editor-control-row">
+                <button class="small-button accent" id="save-lyrics-sync">Save</button>
+                <button class="small-button danger" id="cancel-lyrics-sync">Cancel</button>
+            </div>
         </div>
     </section>
     <section id="local-lyrics-library" class="sync-panel">
@@ -588,6 +599,71 @@
             margin-top: 16px;
         }
 
+        .sync-editor {
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .sync-editor-progress {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .sync-editor-context-line,
+        .sync-editor-current-line {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 6px;
+            background: var(--background);
+        }
+
+        .sync-editor-context-line {
+            min-height: 50px;
+            font-size: 20px;
+            opacity: 0.62;
+        }
+
+        .sync-editor-current-line {
+            min-height: 82px;
+            font-size: 30px;
+            font-weight: 700;
+        }
+
+        .sync-mark-action {
+            height: 128px;
+            font-size: 46px;
+            font-weight: 700;
+        }
+
+        .sync-editor-control-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .sync-editor-control-row .small-button {
+            height: 80px;
+            font-size: 30px;
+        }
+
+        body.lyrics-sync-editing #album-art-container,
+        body.lyrics-sync-editing #navidrome-client-picker,
+        body.lyrics-sync-editing #mini-buttons-container,
+        body.lyrics-sync-editing #playback-offset,
+        body.lyrics-sync-editing #lyrics-container,
+        body.lyrics-sync-editing #local-lyrics-library,
+        body.lyrics-sync-editing #small-button-container-1,
+        body.lyrics-sync-editing #small-button-container-2 {
+            display: none !important;
+        }
+
+        body.lyrics-sync-editing #lyrics-sync-panel {
+            margin-top: 12px;
+        }
+
         .local-lyrics-list {
             display: flex;
             flex-direction: column;
@@ -729,6 +805,14 @@
         .small-button:active {
             opacity: 0.7;
             transform: scale(0.98);
+        }
+
+        .small-button:disabled,
+        .small-button:disabled:hover,
+        .small-button:disabled:active {
+            cursor: default;
+            opacity: 0.42;
+            transform: none;
         }
 
         .small-button.dark {

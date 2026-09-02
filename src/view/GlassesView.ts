@@ -45,11 +45,9 @@ function buildNormalConfig(
     songInfoText: string,
     playbackBarText: string,
     showPlaybackButtons: boolean,
-    syncActionLabel: string,
 ) {
     const playbackItems = ['◁◁', ' ▷ll', '▷▷'];
-    const itemNames = syncActionLabel ? [syncActionLabel, ...playbackItems] : playbackItems;
-    const listWidth = syncActionLabel ? 90 : 80;
+    const listWidth = 80;
     const songInfoX = showPlaybackButtons ? 155 + listWidth : 155;
     return {
         containerTotalNum: showPlaybackButtons ? 4 : 3,
@@ -72,8 +70,8 @@ function buildNormalConfig(
             containerName: 'buttons',
             isEventCapture: 1,
             itemContainer: new ListItemContainerProperty({
-                itemCount: itemNames.length,
-                itemName: itemNames,
+                itemCount: playbackItems.length,
+                itemName: playbackItems,
                 isItemSelectBorderEn: 1,
             }),
         })] : [],
@@ -166,17 +164,16 @@ export async function createView(song: Song): Promise<void> {
         }
 
         const editing = lyricsSyncPresenter.isEditing();
-        const syncActionLabel = lyricsSyncPresenter.getActionLabel();
         const activeSource = spotifyPresenter.getActiveSource();
         const showPlaybackButtons = activeSource !== 'navidrome';
-        const modeKey = editing ? 'sync-editor' : `${activeSource}:${syncActionLabel}`;
+        const modeKey = editing ? 'sync-editor' : activeSource;
         const songInfoText = `${song.title}\n${song.artist}\n${song.album}`;
         const playbackBarText = `${formatTime(song.progressSeconds)}               -${formatTime(Math.max(0, song.durationSeconds - song.progressSeconds))}\n` +
             `${song.createPlaybackBar(MAX_WIDTH)}\n${lyricsPresenter.currentLineFormatted}\n           ${lyricsPresenter.nextLine}`;
         const syncText = lyricsSyncPresenter.getGlassesContent();
         const buildConfig = () => editing
             ? buildSyncConfig(syncText)
-            : buildNormalConfig(songInfoText, playbackBarText, showPlaybackButtons, syncActionLabel);
+            : buildNormalConfig(songInfoText, playbackBarText, showPlaybackButtons);
 
         if (isPageCreated && lastRenderedMode !== modeKey) {
             let rebuilt = false;

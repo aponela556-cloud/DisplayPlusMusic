@@ -22,6 +22,7 @@ function escapeHtml(value: string): string {
 class ViewPresenter {
     private lastSongID: string = ""
     private lastBlobUrl?: string;
+    private lastLyricsSyncEditing = false;
 
     constructor() { }
 
@@ -72,13 +73,33 @@ class ViewPresenter {
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
         });
+        document.getElementById('mark-lyrics-sync')?.addEventListener('click', async () => {
+            if (await lyricsSyncPresenter.markCurrentLine()) {
+                try { navigator.vibrate?.(25); } catch { /* Optional feedback only. */ }
+                requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            }
+            this.renderLyricsSyncControls();
+        });
+        document.getElementById('undo-lyrics-sync')?.addEventListener('click', async () => {
+            if (await lyricsSyncPresenter.undoLine()) {
+                requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            }
+            this.renderLyricsSyncControls();
+        });
+        document.getElementById('toggle-lyrics-sync-playback')?.addEventListener('click', async () => {
+            await lyricsSyncPresenter.togglePlayback();
+            requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            this.renderLyricsSyncControls();
+        });
         document.getElementById('save-lyrics-sync')?.addEventListener('click', async () => {
             await lyricsSyncPresenter.saveAndExit();
+            requestImmediateViewRefresh(spotifyPresenter.currentSong);
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
         });
         document.getElementById('cancel-lyrics-sync')?.addEventListener('click', async () => {
             await lyricsSyncPresenter.cancelAndExit();
+            requestImmediateViewRefresh(spotifyPresenter.currentSong);
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
         });
@@ -107,7 +128,9 @@ class ViewPresenter {
                     alert('Play this song in Spotify before resuming its sync session.');
                     return;
                 }
-                await lyricsSyncPresenter.startSync(record.status === 'complete');
+                if (await lyricsSyncPresenter.startSync(record.status === 'complete')) {
+                    requestImmediateViewRefresh(spotifyPresenter.currentSong);
+                }
             } else if (action === 'export') {
                 this.downloadLrc(record);
             } else if (action === 'copy') {
@@ -345,20 +368,63 @@ class ViewPresenter {
         const startButton = document.getElementById('start-lyrics-sync') as HTMLButtonElement | null;
         const activeControls = document.getElementById('lyrics-sync-active-controls');
         const status = document.getElementById('lyrics-sync-status');
+        const progress = document.getElementById('lyrics-sync-progress');
+        const previousLine = document.getElementById('lyrics-sync-previous-line');
+        const currentLine = document.getElementById('lyrics-sync-current-line');
+        const nextLine = document.getElementById('lyrics-sync-next-line');
+        const markButton = document.getElementById('mark-lyrics-sync') as HTMLButtonElement | null;
+        const undoButton = document.getElementById('undo-lyrics-sync') as HTMLButtonElement | null;
+        const playbackButton = document.getElementById('toggle-lyrics-sync-playback') as HTMLButtonElement | null;
         const editing = lyricsSyncPresenter.isEditing();
         const actionLabel = lyricsSyncPresenter.getActionLabel();
+        const editorState = lyricsSyncPresenter.getEditorState();
+        const editingChanged = editing !== this.lastLyricsSyncEditing;
+
+        document.body.classList.toggle('lyrics-sync-editing', editing);
 
         if (startButton) {
-            startButton.textContent = actionLabel || 'Start Sync';
+            startButton.textContent = actionLabel || 'Create LRC';
             startButton.style.display = !editing && actionLabel ? 'flex' : 'none';
         }
         if (activeControls) activeControls.style.display = editing ? 'flex' : 'none';
+        if (progress) {
+            progress.textContent = editorState.allMarked
+                ? `Complete · ${editorState.markedCount}/${editorState.totalLines} lines`
+                : `Line ${editorState.currentLineNumber} / ${editorState.totalLines}`;
+        }
+        if (previousLine) {
+            previousLine.textContent = editorState.previousLine ? `Previous: ${editorState.previousLine}` : '';
+            previousLine.style.display = editorState.previousLine ? 'block' : 'none';
+        }
+        if (currentLine) {
+            currentLine.textContent = editorState.allMarked
+                ? '✓ All lines marked'
+                : editorState.currentLine ? `▶ ${editorState.currentLine}` : '';
+        }
+        if (nextLine) {
+            nextLine.textContent = editorState.nextLine ? `Next: ${editorState.nextLine}` : '';
+            nextLine.style.display = editorState.nextLine ? 'block' : 'none';
+        }
+        if (markButton) {
+            markButton.textContent = editorState.allMarked
+                ? 'ALL LINES MARKED'
+                : `MARK LINE ${editorState.currentLineNumber}`;
+            markButton.disabled = !editorState.canMark;
+        }
+        if (undoButton) undoButton.disabled = !editorState.canUndo;
+        if (playbackButton) playbackButton.textContent = editorState.isPlaying ? 'Pause' : 'Play';
         if (status) {
-            if (editing) status.textContent = lyricsSyncPresenter.getMessage() || 'Editing on glasses';
+            if (editing) status.textContent = editorState.message || 'Use the phone to time each lyric line.';
             else if (lyricsSyncPresenter.getMessage()) status.textContent = lyricsSyncPresenter.getMessage();
-            else if (actionLabel) status.textContent = 'Unsynced lyrics are ready for manual timing.';
+            else if (actionLabel) status.textContent = 'Plain lyrics are ready for line-by-line timing.';
             else if (lyricsPresenter.hasSyncedLyrics()) status.textContent = lyricsPresenter.getLyricsSourceLabel();
             else status.textContent = 'No editable lyrics for the current song.';
+        }
+        if (editingChanged) {
+            this.lastLyricsSyncEditing = editing;
+            requestAnimationFrame(() => {
+                document.getElementById('lyrics-sync-panel')?.scrollIntoView({ block: 'start' });
+            });
         }
     }
 
@@ -378,7 +444,7 @@ class ViewPresenter {
                     <p class="local-lyrics-card-title">${escapeHtml(record.title)}</p>
                     <p class="local-lyrics-card-meta">${escapeHtml(record.artist)} · ${record.status} · ${progress}</p>
                     <div class="local-lyrics-actions">
-                        <button class="small-button" data-lyrics-action="sync" data-track-id="${escapeHtml(record.spotifyTrackId)}">${completed ? 'Re-sync' : 'Resume'}</button>
+                        <button class="small-button" data-lyrics-action="sync" data-track-id="${escapeHtml(record.spotifyTrackId)}">${completed ? 'Re-time LRC' : 'Continue LRC'}</button>
                         ${completed ? `<button class="small-button accent" data-lyrics-action="export" data-track-id="${escapeHtml(record.spotifyTrackId)}">Export</button>` : ''}
                         ${completed ? `<button class="small-button" data-lyrics-action="copy" data-track-id="${escapeHtml(record.spotifyTrackId)}">Copy</button>` : ''}
                         <button class="small-button danger" data-lyrics-action="delete" data-track-id="${escapeHtml(record.spotifyTrackId)}">Delete</button>

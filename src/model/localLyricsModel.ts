@@ -24,6 +24,16 @@ export interface LyricsCandidate {
     source: 'local server' | 'local library' | 'web' | '';
 }
 
+export interface LyricsEditorContext {
+    currentLineIndex: number;
+    currentLineNumber: number;
+    totalLines: number;
+    previousLine: string;
+    currentLine: string;
+    nextLine: string;
+    allMarked: boolean;
+}
+
 const INDEX_STORAGE_KEY = 'local_lyrics_index_v1';
 const RECORD_STORAGE_PREFIX = 'local_lyrics_v1:';
 const SECTION_LABEL_PATTERN = /^\s*[\[【(（]\s*(?:verse|pre[- ]?chorus|chorus|bridge|intro|outro|hook|refrain|instrumental|interlude|主歌|副歌|導歌|导歌|橋段|桥段|前奏|尾奏|間奏|间奏)(?:\s*\d+)?\s*[\]】)）]\s*$/iu;
@@ -60,6 +70,21 @@ export function parsePlainLyrics(plainLyrics: string): string[] {
         .split('\n')
         .map(line => line.trim())
         .filter(line => line.length > 0 && !SECTION_LABEL_PATTERN.test(line));
+}
+
+export function getLyricsEditorContext(lines: string[], requestedIndex: number): LyricsEditorContext {
+    const totalLines = lines.length;
+    const currentLineIndex = Math.min(Math.max(0, Math.trunc(requestedIndex)), totalLines);
+    const allMarked = totalLines > 0 && currentLineIndex >= totalLines;
+    return {
+        currentLineIndex,
+        currentLineNumber: totalLines === 0 ? 0 : Math.min(currentLineIndex + 1, totalLines),
+        totalLines,
+        previousLine: currentLineIndex > 0 ? lines[currentLineIndex - 1] ?? '' : '',
+        currentLine: allMarked ? '' : lines[currentLineIndex] ?? '',
+        nextLine: !allMarked && currentLineIndex + 1 < totalLines ? lines[currentLineIndex + 1] : '',
+        allMarked,
+    };
 }
 
 export function clampTimestampMs(timestampMs: number, durationMs: number): number {

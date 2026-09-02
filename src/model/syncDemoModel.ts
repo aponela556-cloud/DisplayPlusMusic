@@ -5,7 +5,7 @@ First demo line
 Second demo line
 
 [Chorus]
-This line tests swipe marking
+This line tests phone marking
 The final line completes the draft`;
 
 export function createSyncDemoSong(): Song {

@@ -17,9 +17,9 @@ DisplayPlus Music is a media viewer for the Even Hub, displaying the current pla
 
 ## Local lyrics sync (development feature)
 
-When LRCLIB only has plain lyrics for the current Spotify track, DisplayPlus Music shows **Start Sync** (or **Resume Sync** for a saved draft). The editor pauses Spotify and seeks to the beginning. Click to play/pause, swipe down to timestamp the current line, swipe up to redo the previous line, and double click to save and exit.
+When LRCLIB only has plain lyrics for the current Spotify track, the phone view shows **Create LRC** (or **Continue LRC** for a saved draft). Starting the editor pauses Spotify and seeks to the beginning. The phone provides Mark, Undo, Play/Pause, Save, and Cancel controls. Each Mark records the current line and advances the glasses display to the next line.
 
-Completed lyrics are stored in the Even Hub app's private local storage and take priority over remote plain lyrics. Remote synced lyrics always remain the first choice. The phone view can resume or restart a draft, save or cancel an editing session, and download or copy a completed UTF-8 LRC file for LRCGET.
+The glasses keep their original three playback controls during normal playback. While timing lyrics, they become a display-only editor showing the previous, current, and next lines; ring and temple events do not modify timestamps. Completed lyrics are stored in the Even Hub app's private local storage and take priority over remote plain lyrics. Remote synced lyrics always remain the first choice. The phone view can continue or restart a draft, save or cancel an editing session, and download or copy a completed UTF-8 LRC file for LRCGET.
 
 To test without Spotify credentials, start the development server and open:
 
@@ -27,7 +27,7 @@ To test without Spotify credentials, start the development server and open:
 http://localhost:5173/?syncDemo=1
 ```
 
-The demo supports the simulator's Up, Down, Click, and Double Click events. A physical R1 is still required to validate real gesture timing and event de-duplication.
+The demo can exercise the full phone-controlled timing flow without Spotify credentials. The Even Hub simulator verifies the automatic switch between the original playback layout and the display-only editor; a physical G2 is still required to validate the final screen rebuild behavior.
 
 On Windows, `Start-DisplayPlusMusic-SyncDemo.cmd` starts a LAN development server and displays a QR code for loading the same credential-free demo on a test phone. Keep the command window open during testing.
 

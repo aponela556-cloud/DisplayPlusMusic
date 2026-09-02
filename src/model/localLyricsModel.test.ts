@@ -6,6 +6,7 @@ import localLyricsStore, {
     createLocalLyricsRecord,
     finalizeLocalLyricsRecord,
     formatLrcTimestamp,
+    getLyricsEditorContext,
     markLocalLyricsLine,
     parsePlainLyrics,
     resolveLyricsPriority,
@@ -42,6 +43,26 @@ describe('plain lyrics parsing', () => {
 });
 
 describe('timestamp editing and LRC output', () => {
+    it('selects exactly one current line by index even when lyric text repeats', () => {
+        const lines = ['Same chorus', 'Middle line', 'Same chorus'];
+        expect(getLyricsEditorContext(lines, 0)).toMatchObject({
+            currentLineNumber: 1,
+            currentLine: 'Same chorus',
+            nextLine: 'Middle line',
+        });
+        expect(getLyricsEditorContext(lines, 2)).toMatchObject({
+            currentLineNumber: 3,
+            previousLine: 'Middle line',
+            currentLine: 'Same chorus',
+            allMarked: false,
+        });
+        expect(getLyricsEditorContext(lines, 3)).toMatchObject({
+            currentLineNumber: 3,
+            currentLine: '',
+            allMarked: true,
+        });
+    });
+
     it('clamps and formats timestamps', () => {
         expect(clampTimestampMs(-50, 180000)).toBe(0);
         expect(clampTimestampMs(190000, 180000)).toBe(180000);

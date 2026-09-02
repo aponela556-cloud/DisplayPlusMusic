@@ -4,6 +4,8 @@ import localLyricsStore, {
     cloneLocalLyricsRecord,
     createLocalLyricsRecord,
     finalizeLocalLyricsRecord,
+    formatLrcTimestamp,
+    getLyricsEditorContext,
     LocalLyricsRecord,
     markLocalLyricsLine,
     parsePlainLyrics,
@@ -12,6 +14,22 @@ import localLyricsStore, {
 import playbackOffsetModel from '../model/playbackOffsetModel';
 import lyricsPresenter from './lyricsPresenter';
 import spotifyPresenter from './spotifyPresenter';
+
+export interface LyricsSyncEditorState {
+    editing: boolean;
+    currentLineIndex: number;
+    currentLineNumber: number;
+    totalLines: number;
+    markedCount: number;
+    previousLine: string;
+    currentLine: string;
+    nextLine: string;
+    allMarked: boolean;
+    canUndo: boolean;
+    canMark: boolean;
+    isPlaying: boolean;
+    message: string;
+}
 
 class LyricsSyncPresenter {
     private editing = false;
@@ -25,6 +43,8 @@ class LyricsSyncPresenter {
     private message = '';
     private preparingToken = 0;
     private saving = false;
+    private marking = false;
+    private lastMarkAt = 0;
 
     isEditing(): boolean {
         return this.editing;
@@ -34,7 +54,7 @@ class LyricsSyncPresenter {
         return this.message;
     }
 
-    getActionLabel(): 'Start Sync' | 'Resume Sync' | '' {
+    getActionLabel(): 'Create LRC' | 'Continue LRC' | '' {
         if (
             this.editing ||
             spotifyPresenter.getActiveSource() !== 'spotify' ||
@@ -43,7 +63,7 @@ class LyricsSyncPresenter {
             this.preparedSongID === '0' ||
             this.localRecord?.status === 'complete'
         ) return '';
-        return this.localRecord?.status === 'draft' ? 'Resume Sync' : 'Start Sync';
+        return this.localRecord?.status === 'draft' ? 'Continue LRC' : 'Create LRC';
     }
 
     async prepareForSong(
@@ -110,7 +130,8 @@ class LyricsSyncPresenter {
             this.lines.length,
         );
         this.editing = true;
-        this.message = 'Paused at start - click to play';
+        this.lastMarkAt = 0;
+        this.message = 'Paused at start - tap Play';
 
         const ready = await spotifyPresenter.pauseAndSeekToBeginning();
         if (!ready) {
@@ -128,39 +149,48 @@ class LyricsSyncPresenter {
     async togglePlayback(): Promise<void> {
         if (!this.editing || !this.isCurrentSongValid() || !this.isPlaybackReady()) return;
         await spotifyPresenter.togglePlayback();
-        this.message = spotifyPresenter.currentSong.isPlaying ? 'Playing - swipe down to mark' : 'Paused';
+        this.message = spotifyPresenter.currentSong.isPlaying ? 'Playing - tap MARK for the current line' : 'Paused';
     }
 
     async markCurrentLine(): Promise<boolean> {
+        const now = performance.now();
+        if (this.marking || (this.lastMarkAt > 0 && now - this.lastMarkAt < 250)) return false;
         if (!this.editing || !this.workingRecord || !this.isCurrentSongValid() || !this.isPlaybackReady()) return false;
         if (!spotifyPresenter.currentSong.isPlaying) {
-            this.message = 'Paused - click to play first';
+            this.message = 'Paused - tap Play first';
             return false;
         }
         if (this.workingRecord.currentLineIndex >= this.lines.length) {
-            this.message = 'All lines marked - double click to save';
+            this.message = 'All lines marked - tap Save';
             return false;
         }
 
-        const rawProgressMs = (
-            spotifyPresenter.currentSong.progressSeconds - playbackOffsetModel.getOffsetSeconds()
-        ) * 1000;
-        const timestampMs = clampTimestampMs(rawProgressMs, this.workingRecord.durationMs);
+        this.marking = true;
         try {
-            this.workingRecord = markLocalLyricsLine(this.workingRecord, this.lines.length, timestampMs);
-        } catch {
-            this.message = 'Playback is before the previous mark';
-            return false;
-        }
-        await this.persistWorkingDraft();
+            const rawProgressMs = (
+                spotifyPresenter.currentSong.progressSeconds - playbackOffsetModel.getOffsetSeconds()
+            ) * 1000;
+            const timestampMs = clampTimestampMs(rawProgressMs, this.workingRecord.durationMs);
+            try {
+                this.workingRecord = markLocalLyricsLine(this.workingRecord, this.lines.length, timestampMs);
+            } catch {
+                this.message = 'Playback is before the previous mark';
+                return false;
+            }
+            this.lastMarkAt = now;
+            await this.persistWorkingDraft();
+            const timestampText = formatLrcTimestamp(timestampMs).slice(1, -1);
 
-        if (this.workingRecord.currentLineIndex >= this.lines.length) {
-            await spotifyPresenter.pausePlayback();
-            this.message = 'All lines marked - double click to save';
-        } else {
-            this.message = `Marked ${this.workingRecord.currentLineIndex}/${this.lines.length}`;
+            if (this.workingRecord.currentLineIndex >= this.lines.length) {
+                await spotifyPresenter.pausePlayback();
+                this.message = `Marked line ${this.lines.length} at ${timestampText} - tap Save`;
+            } else {
+                this.message = `Marked line ${this.workingRecord.currentLineIndex} at ${timestampText}`;
+            }
+            return true;
+        } finally {
+            this.marking = false;
         }
-        return true;
     }
 
     async undoLine(): Promise<boolean> {
@@ -208,18 +238,40 @@ class LyricsSyncPresenter {
 
     getGlassesContent(): string {
         if (!this.editing || !this.workingRecord) return '';
-        const index = this.workingRecord.currentLineIndex;
-        const previous = index > 0 ? this.truncateLine(this.lines[index - 1]) : '';
-        const current = index < this.lines.length ? this.truncateLine(this.lines[index]) : '✓ All lines marked';
-        const next = index + 1 < this.lines.length ? this.truncateLine(this.lines[index + 1]) : '';
+        const state = this.getEditorState();
         return [
-            `SYNC  ${Math.min(index + 1, this.lines.length)}/${this.lines.length}`,
-            previous ? `Previous: ${previous}` : 'Previous:',
-            `> ${current}`,
-            next ? `Next: ${next}` : 'Next:',
-            this.message,
-            'Up Undo  Down Mark  Click Play  2x Save',
+            `LRC  ${state.currentLineNumber}/${state.totalLines}`,
+            state.previousLine ? `  ${this.truncateLine(state.previousLine)}` : '',
+            `> ${this.truncateLine(state.currentLine || 'All lines marked')}`,
+            state.nextLine ? `  ${this.truncateLine(state.nextLine)}` : '',
+            state.message,
+            'Use phone controls',
         ].join('\n');
+    }
+
+    getEditorState(): LyricsSyncEditorState {
+        const index = this.workingRecord?.currentLineIndex ?? 0;
+        const context = getLyricsEditorContext(this.lines, index);
+        const validSong = Boolean(
+            this.workingRecord &&
+            spotifyPresenter.currentSong.songID === this.workingRecord.spotifyTrackId,
+        );
+        const isPlaying = Boolean(this.editing && validSong && spotifyPresenter.currentSong.isPlaying);
+        return {
+            editing: this.editing,
+            currentLineIndex: context.currentLineIndex,
+            currentLineNumber: context.currentLineNumber,
+            totalLines: context.totalLines,
+            markedCount: Math.min(this.workingRecord?.lineTimestampsMs.length ?? 0, context.totalLines),
+            previousLine: context.previousLine,
+            currentLine: context.currentLine,
+            nextLine: context.nextLine,
+            allMarked: this.editing && context.allMarked,
+            canUndo: this.editing && index > 0,
+            canMark: this.editing && validSong && isPlaying && !context.allMarked,
+            isPlaying,
+            message: this.message,
+        };
     }
 
     getCurrentRecord(): LocalLyricsRecord | null {
@@ -259,6 +311,8 @@ class LyricsSyncPresenter {
         this.workingRecord = null;
         this.lines = [];
         this.message = '';
+        this.marking = false;
+        this.lastMarkAt = 0;
     }
 
     private notifyLibraryChanged(): void {

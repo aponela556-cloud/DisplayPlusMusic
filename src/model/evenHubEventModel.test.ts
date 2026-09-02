@@ -8,7 +8,7 @@ describe('Even Hub event normalization', () => {
             listEvent: {
                 containerID: 2,
                 containerName: 'buttons',
-                currentSelectItemName: 'Start Sync',
+                currentSelectItemName: '◁◁',
                 currentSelectItemIndex: 0,
                 eventType: OsEventTypeList.CLICK_EVENT,
             },
@@ -22,7 +22,7 @@ describe('Even Hub event normalization', () => {
             jsonData: {
                 containerID: 2,
                 containerName: 'buttons',
-                currentSelectItemName: 'Start Sync',
+                currentSelectItemName: '◁◁',
                 currentSelectItemIndex: 0,
                 eventType: OsEventTypeList.CLICK_EVENT,
             },
@@ -30,7 +30,7 @@ describe('Even Hub event normalization', () => {
         expect(event.listEvent).toMatchObject({
             containerID: 2,
             containerName: 'buttons',
-            currentSelectItemName: 'Start Sync',
+            currentSelectItemName: '◁◁',
             currentSelectItemIndex: 0,
             eventType: OsEventTypeList.CLICK_EVENT,
         });
