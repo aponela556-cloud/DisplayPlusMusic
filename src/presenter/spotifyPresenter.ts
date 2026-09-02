@@ -6,6 +6,7 @@ import { storage } from '../utils/storage';
 import type { MusicSource } from '../model/musicSource';
 import { createSyncDemoSong } from '../model/syncDemoModel';
 import playbackOffsetModel from '../model/playbackOffsetModel';
+import type { PlaybackResetResult } from '../model/spotifyModel';
 
 class SpotifyPresenter {
     currentSong: Song = song_placeholder;
@@ -131,13 +132,19 @@ class SpotifyPresenter {
         return spotifyModel.song_Play();
     }
 
-    async pauseAndSeekToBeginning(): Promise<boolean> {
+    async pauseAndSeekToBeginning(): Promise<PlaybackResetResult> {
         if (this.syncDemoMode) {
             this.currentSong.addisPlaying(false);
             this.currentSong.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
-            return true;
+            return { ok: true };
         }
-        if (this.activeSource !== 'spotify') return false;
+        if (this.activeSource !== 'spotify') {
+            return {
+                ok: false,
+                stage: 'device',
+                message: 'Spotify playback is required for LRC timing',
+            };
+        }
         return spotifyModel.pauseAndSeekToBeginning();
     }
 

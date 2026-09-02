@@ -6,6 +6,8 @@ import { storage } from '../utils/storage';
 import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
 
+const PLAYBACK_RESET_POSITION_MS = 1;
+
 function clampProgress(seconds: number, durationSeconds: number): number {
     const clamped = durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds;
     return Math.max(0, clamped);
@@ -97,7 +99,12 @@ export class SpotifyModel {
     deviceId = '';
     private playbackAvailable = false;
 
-    constructor(private readonly getSdk: () => SpotifyApi = () => spotifysdk) {}
+    constructor(
+        private readonly getSdk: () => SpotifyApi = () => spotifysdk,
+        private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => (
+            new Promise(resolve => setTimeout(resolve, milliseconds))
+        ),
+    ) {}
 
     isPlaybackAvailable(): boolean {
         return this.playbackAvailable;
@@ -263,21 +270,85 @@ export class SpotifyModel {
         }
     }
 
-    async pauseAndSeekToBeginning(): Promise<boolean> {
+    async pauseAndSeekToBeginning(): Promise<PlaybackResetResult> {
         const targetDeviceId = await this.resolvePlaybackDeviceId();
-        if (!targetDeviceId) return false;
-        try {
-            await this.getSdk().player.pausePlayback(targetDeviceId);
-            await this.getSdk().player.seekToPosition(0, targetDeviceId);
+        if (!targetDeviceId) {
+            return {
+                ok: false,
+                stage: 'device',
+                message: 'Spotify device unavailable - open Spotify and tap Retry Reset',
+            };
+        }
+
+        const sdk = this.getSdk();
+        let lastFailure: PlaybackResetFailure = {
+            ok: false,
+            stage: 'seek',
+            message: 'Could not seek Spotify to start - tap Retry Reset',
+        };
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                // Seek while the device is still active. Spotify does not guarantee
+                // ordering between Player commands, so confirm this state before pausing.
+                await sdk.player.seekToPosition(PLAYBACK_RESET_POSITION_MS, targetDeviceId);
+            } catch (error) {
+                console.error('Seek to beginning failed:', error);
+                lastFailure = {
+                    ok: false,
+                    stage: 'seek',
+                    message: 'Could not seek Spotify to start - tap Retry Reset',
+                };
+                if (attempt === 0) await this.wait(250);
+                continue;
+            }
+
+            const seekConfirmed = await this.waitForPlaybackState(playback => (
+                playback.device?.id === targetDeviceId &&
+                (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= 2000
+            ));
+            if (!seekConfirmed) {
+                lastFailure = {
+                    ok: false,
+                    stage: 'seek',
+                    message: 'Spotify did not confirm the start position - tap Retry Reset',
+                };
+                continue;
+            }
+
+            try {
+                await sdk.player.pausePlayback(targetDeviceId);
+            } catch (error) {
+                console.error('Pause after seek failed:', error);
+                lastFailure = {
+                    ok: false,
+                    stage: 'pause',
+                    message: 'Could not pause Spotify - tap Retry Reset',
+                };
+                if (attempt === 0) await this.wait(250);
+                continue;
+            }
+
+            const pauseConfirmed = await this.waitForPlaybackState(playback => (
+                playback.device?.id === targetDeviceId && playback.is_playing === false
+            ));
+            if (!pauseConfirmed) {
+                lastFailure = {
+                    ok: false,
+                    stage: 'pause',
+                    message: 'Spotify did not confirm pause - tap Retry Reset',
+                };
+                continue;
+            }
+
             this.currentSong?.addisPlaying(false);
             this.currentSong?.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
             this.playbackAvailable = true;
-            return true;
-        } catch (e) {
-            console.error('Pause and seek failed:', e);
-            this.playbackAvailable = false;
-            return false;
+            return { ok: true };
         }
+
+        this.playbackAvailable = false;
+        return lastFailure;
     }
 
     async song_Back() {
@@ -327,6 +398,31 @@ export class SpotifyModel {
         this.playbackAvailable = false;
         return '';
     }
+
+    private async waitForPlaybackState(
+        predicate: (playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>) => boolean,
+    ): Promise<boolean> {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                const playback = await this.getSdk().player.getPlaybackState();
+                if (playback && predicate(playback)) return true;
+            } catch (error) {
+                console.warn('Could not verify Spotify playback state:', error);
+            }
+            if (attempt < 4) await this.wait(200);
+        }
+        return false;
+    }
+}
+
+export type PlaybackResetStage = 'device' | 'seek' | 'pause';
+
+export type PlaybackResetResult = { ok: true } | PlaybackResetFailure;
+
+export interface PlaybackResetFailure {
+    ok: false;
+    stage: PlaybackResetStage;
+    message: string;
 }
 
 const spotifyModel = new SpotifyModel();

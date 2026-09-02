@@ -28,6 +28,7 @@ export interface LyricsSyncEditorState {
     canUndo: boolean;
     canMark: boolean;
     isPlaying: boolean;
+    playbackResetReady: boolean;
     message: string;
 }
 
@@ -45,6 +46,7 @@ class LyricsSyncPresenter {
     private saving = false;
     private marking = false;
     private lastMarkAt = 0;
+    private playbackResetReady = false;
 
     isEditing(): boolean {
         return this.editing;
@@ -73,14 +75,15 @@ class LyricsSyncPresenter {
         force = false,
     ): Promise<void> {
         if (this.editing) {
-            if (!spotifyPresenter.isPlaybackAvailable()) {
-                this.message = 'Spotify playback device unavailable';
-                await spotifyPresenter.pausePlayback();
-                return;
-            }
             if (this.workingRecord && song.songID !== this.workingRecord.spotifyTrackId) {
                 this.message = 'Song changed - save or cancel on phone';
                 if (song.isPlaying) await spotifyPresenter.pausePlayback();
+                return;
+            }
+            if (!this.playbackResetReady) return;
+            if (!spotifyPresenter.isPlaybackAvailable()) {
+                this.message = 'Spotify playback device unavailable';
+                await spotifyPresenter.pausePlayback();
             }
             return;
         }
@@ -131,16 +134,12 @@ class LyricsSyncPresenter {
         );
         this.editing = true;
         this.lastMarkAt = 0;
+        this.playbackResetReady = false;
         this.message = 'Paused at start - tap Play';
 
-        const ready = await spotifyPresenter.pauseAndSeekToBeginning();
-        if (!ready) {
-            this.editing = false;
-            this.workingRecord = null;
-            this.lines = [];
-            this.message = 'Spotify playback device unavailable';
-            return false;
-        }
+        const resetResult = await spotifyPresenter.pauseAndSeekToBeginning();
+        this.playbackResetReady = resetResult.ok;
+        if (!resetResult.ok) this.message = resetResult.message;
 
         await this.persistWorkingDraft();
         return true;
@@ -148,6 +147,14 @@ class LyricsSyncPresenter {
 
     async togglePlayback(): Promise<boolean> {
         if (!this.editing || !this.isCurrentSongValid()) return false;
+        if (!this.playbackResetReady) {
+            const resetResult = await spotifyPresenter.pauseAndSeekToBeginning();
+            this.playbackResetReady = resetResult.ok;
+            this.message = resetResult.ok
+                ? 'Paused at start - tap Play'
+                : resetResult.message;
+            return resetResult.ok;
+        }
         const wasPlaying = Boolean(spotifyPresenter.currentSong.isPlaying);
         const succeeded = await spotifyPresenter.togglePlayback();
         if (!succeeded) {
@@ -163,7 +170,13 @@ class LyricsSyncPresenter {
     async markCurrentLine(): Promise<boolean> {
         const now = performance.now();
         if (this.marking || (this.lastMarkAt > 0 && now - this.lastMarkAt < 250)) return false;
-        if (!this.editing || !this.workingRecord || !this.isCurrentSongValid() || !this.isPlaybackReady()) return false;
+        if (
+            !this.editing ||
+            !this.workingRecord ||
+            !this.playbackResetReady ||
+            !this.isCurrentSongValid() ||
+            !this.isPlaybackReady()
+        ) return false;
         if (!spotifyPresenter.currentSong.isPlaying) {
             this.message = 'Paused - tap Play first';
             return false;
@@ -276,8 +289,9 @@ class LyricsSyncPresenter {
             nextLine: context.nextLine,
             allMarked: this.editing && context.allMarked,
             canUndo: this.editing && index > 0,
-            canMark: this.editing && validSong && isPlaying && !context.allMarked,
+            canMark: this.editing && this.playbackResetReady && validSong && isPlaying && !context.allMarked,
             isPlaying,
+            playbackResetReady: this.playbackResetReady,
             message: this.message,
         };
     }
@@ -321,6 +335,7 @@ class LyricsSyncPresenter {
         this.message = '';
         this.marking = false;
         this.lastMarkAt = 0;
+        this.playbackResetReady = false;
     }
 
     private notifyLibraryChanged(): void {

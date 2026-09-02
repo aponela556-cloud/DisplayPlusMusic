@@ -412,7 +412,11 @@ class ViewPresenter {
             markButton.disabled = !editorState.canMark;
         }
         if (undoButton) undoButton.disabled = !editorState.canUndo;
-        if (playbackButton) playbackButton.textContent = editorState.isPlaying ? 'Pause' : 'Play';
+        if (playbackButton) {
+            playbackButton.textContent = editorState.playbackResetReady
+                ? editorState.isPlaying ? 'Pause' : 'Play'
+                : 'Retry Reset';
+        }
         if (status) {
             if (editing) status.textContent = editorState.message || 'Use the phone to time each lyric line.';
             else if (lyricsSyncPresenter.getMessage()) status.textContent = lyricsSyncPresenter.getMessage();

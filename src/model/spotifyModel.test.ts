@@ -66,4 +66,74 @@ describe('SpotifyModel playback controls', () => {
         expect(model.currentSong.isPlaying).toBe(false);
         expect(model.isPlaybackAvailable()).toBe(false);
     });
+
+    it('confirms seek before pausing when preparing lyric timing', async () => {
+        const commandOrder: string[] = [];
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 20_000,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 500,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    is_playing: false,
+                    progress_ms: 500,
+                }),
+            seekToPosition: vi.fn().mockImplementation(async () => { commandOrder.push('seek'); }),
+            pausePlayback: vi.fn().mockImplementation(async () => { commandOrder.push('pause'); }),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+        model.currentSong.addisPlaying(true);
+        model.currentSong.addProgressSeconds(20);
+
+        await expect(model.pauseAndSeekToBeginning()).resolves.toEqual({ ok: true });
+
+        expect(commandOrder).toEqual(['seek', 'pause']);
+        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(1, 'phone-device');
+        expect(sdk.player.pausePlayback).toHaveBeenCalledWith('phone-device');
+        expect(model.currentSong.isPlaying).toBe(false);
+        expect(model.currentSong.progressSeconds).toBe(0);
+    });
+
+    it('reports a seek failure without attempting pause', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const sdk = createSdk({
+            seekToPosition: vi.fn().mockRejectedValue(new Error('seek rejected')),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+
+        const result = await model.pauseAndSeekToBeginning();
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.stage).toBe('seek');
+        expect(sdk.player.seekToPosition).toHaveBeenCalledTimes(2);
+        expect(sdk.player.pausePlayback).not.toHaveBeenCalled();
+    });
+
+    it('reports a pause failure after the start position is confirmed', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const sdk = createSdk({
+            getPlaybackState: vi.fn().mockResolvedValue({
+                device: { id: 'phone-device', is_active: true, is_restricted: false },
+                is_playing: true,
+                progress_ms: 0,
+            }),
+            pausePlayback: vi.fn().mockRejectedValue(new Error('pause rejected')),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+
+        const result = await model.pauseAndSeekToBeginning();
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.stage).toBe('pause');
+        expect(sdk.player.seekToPosition).toHaveBeenCalledTimes(2);
+        expect(sdk.player.pausePlayback).toHaveBeenCalledTimes(2);
+    });
 });
