@@ -46,40 +46,43 @@ function buildNormalConfig(
     playbackBarText: string,
     showPlaybackButtons: boolean,
 ) {
-    const playbackItems = ['◁◁', ' ▷ll', '▷▷'];
-    const listWidth = 80;
-    const songInfoX = showPlaybackButtons ? 155 + listWidth : 155;
     return {
         containerTotalNum: showPlaybackButtons ? 4 : 3,
-        imageObject: [new ImageContainerProperty({
-            xPosition: 2,
-            yPosition: 2,
-            width: 144,
-            height: 144,
-            containerID: 0,
-            containerName: 'album-art',
-        })],
-        listObject: showPlaybackButtons ? [new ListContainerProperty({
-            xPosition: 155,
-            yPosition: 8,
-            width: listWidth,
-            height: 132,
-            borderWidth: 0,
-            borderRadius: 0,
-            containerID: 2,
-            containerName: 'buttons',
-            isEventCapture: 1,
-            itemContainer: new ListItemContainerProperty({
-                itemCount: playbackItems.length,
-                itemName: playbackItems,
-                isItemSelectBorderEn: 1,
+        imageObject: [
+            new ImageContainerProperty({
+                xPosition: 2,
+                yPosition: 2,
+                width: 144,
+                height: 144,
+                containerID: 0,
+                // zOrderIndex: 1,
+                containerName: 'album-art',
             }),
-        })] : [],
+        ],
+        listObject: showPlaybackButtons ? [
+            new ListContainerProperty({
+                xPosition: 155,
+                yPosition: 8,
+                width: 80,
+                height: 132,
+                borderWidth: 0,
+                borderRadius: 0,
+                containerID: 2,
+                containerName: 'buttons',
+                // zOrderIndex: 1,
+                isEventCapture: 1,
+                itemContainer: new ListItemContainerProperty({
+                    itemCount: 3,
+                    itemName: ['◁◁', ' ▷ll', '▷▷'],
+                    isItemSelectBorderEn: 1,
+                }),
+            }),
+        ] : [],
         textObject: [
             new TextContainerProperty({
-                xPosition: songInfoX,
+                xPosition: showPlaybackButtons ? 234 : 155,
                 yPosition: 12,
-                width: MAX_WIDTH - songInfoX + 2,
+                width: showPlaybackButtons ? MAX_WIDTH - 232 : MAX_WIDTH - 153,
                 height: 132,
                 borderRadius: 12,
                 borderWidth: 1,
@@ -87,6 +90,7 @@ function buildNormalConfig(
                 containerID: 3,
                 containerName: 'songInfo',
                 content: songInfoText,
+                // zOrderIndex: 1,
                 isEventCapture: 0,
             }),
             new TextContainerProperty({
@@ -99,6 +103,7 @@ function buildNormalConfig(
                 containerID: 4,
                 containerName: 'playbackBar',
                 content: playbackBarText,
+                // zOrderIndex: 1,
                 isEventCapture: showPlaybackButtons ? 0 : 1,
             }),
         ],
@@ -168,8 +173,7 @@ export async function createView(song: Song): Promise<void> {
         const showPlaybackButtons = activeSource !== 'navidrome';
         const modeKey = editing ? 'sync-editor' : activeSource;
         const songInfoText = `${song.title}\n${song.artist}\n${song.album}`;
-        const playbackBarText = `${formatTime(song.progressSeconds)}               -${formatTime(Math.max(0, song.durationSeconds - song.progressSeconds))}\n` +
-            `${song.createPlaybackBar(MAX_WIDTH)}\n${lyricsPresenter.currentLineFormatted}\n           ${lyricsPresenter.nextLine}`;
+        const playbackBarText = `${formatTime(song.progressSeconds)}               -${formatTime(Math.max(0, song.durationSeconds - song.progressSeconds))}\n` +`${song.createPlaybackBar(MAX_WIDTH)}\n` + `${lyricsPresenter.currentLineFormatted}\n` + `           ${lyricsPresenter.nextLine}`;
         const syncText = lyricsSyncPresenter.getGlassesContent();
         const buildConfig = () => editing
             ? buildSyncConfig(syncText)

@@ -76,26 +76,44 @@ class Song {
         this.songChanged = !this.songChanged
     }
     createPlaybackBar(maxWidth: number): string {
+        let value = this.progressSeconds;
+        let max = this.durationSeconds;
+
         let progressPercent = 0;
-        if (this.durationSeconds > 0) {
-            progressPercent = this.progressSeconds / this.durationSeconds;
+        if (max > 0) {
+            progressPercent = value / max;
             if (isNaN(progressPercent) || !isFinite(progressPercent)) {
                 progressPercent = 0;
             }
             progressPercent = Math.max(0, Math.min(1, progressPercent));
         }
 
-        // The Even display uses an approximately 12 px monospace text grid.
-        // Leave one column free so the closing bracket is never clipped or
-        // wrapped by the renderer at the 576 px right boundary.
-        const pausePrefix = this.isPlaying ? '' : '|| ';
-        const maxColumns = Math.max(4, Math.floor(maxWidth / 12) - 1);
-        const fixedColumns = pausePrefix.length + 3; // [, | and ]
-        const fillColumns = Math.max(1, maxColumns - fixedColumns);
-        const dashCount = Math.round(progressPercent * fillColumns);
-        const underscoreCount = fillColumns - dashCount;
+        let maxUnderscores = 64;
+        let maxDashes = 57;
+        let maxVerticalBar = 144;
+        let maxArrows = 57;
+        let maxBrackets = 82;
 
-        return `${pausePrefix}[${'-'.repeat(dashCount)}|${'_'.repeat(underscoreCount)}]`;
+        let underscoreWidth = maxWidth / maxUnderscores;
+        let dashWidth = maxWidth / maxDashes;
+        let barWidth = maxWidth / maxVerticalBar;
+        let bracketsWidth = maxWidth / maxBrackets;
+
+        let maxWidthTrue = maxWidth - (bracketsWidth * 2) - (this.isPlaying ? 0 : barWidth * 3);
+
+        let maxDashCount = Math.floor(progressPercent * maxDashes);
+        let maxUnderscoreCount = Math.floor((1 - progressPercent) * maxUnderscores);
+
+        let dashCount = Math.floor(maxDashCount * (maxWidthTrue / maxWidth));
+        let underscoreCount = Math.floor(maxUnderscoreCount * (maxWidthTrue / maxWidth));
+        while ((dashCount * dashWidth) + (underscoreCount * underscoreWidth) > maxWidthTrue && dashCount > 0) {
+            dashCount -= 1;
+        }
+
+        dashCount = Math.max(0, dashCount);
+        underscoreCount = Math.max(0, underscoreCount);
+
+        return (this.isPlaying ? "" : "|| ") + "[" + "-".repeat(dashCount) + "|" + "_".repeat(underscoreCount) + "]";
     }
 }
 
