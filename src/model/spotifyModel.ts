@@ -7,6 +7,9 @@ import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
 
 const PLAYBACK_RESET_POSITION_MS = 1;
+const PLAYBACK_RESET_CONFIRMATION_ATTEMPTS = 12;
+const PLAYBACK_RESET_CONFIRMATION_INTERVAL_MS = 250;
+const PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS = 3_000;
 
 function clampProgress(seconds: number, durationSeconds: number): number {
     const clamped = durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds;
@@ -304,8 +307,8 @@ export class SpotifyModel {
             }
 
             const seekConfirmed = await this.waitForPlaybackState(playback => (
-                playback.device?.id === targetDeviceId &&
-                (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= 2000
+                this.isPlaybackStateForReset(playback, targetDeviceId) &&
+                (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS
             ));
             if (!seekConfirmed) {
                 lastFailure = {
@@ -330,7 +333,7 @@ export class SpotifyModel {
             }
 
             const pauseConfirmed = await this.waitForPlaybackState(playback => (
-                playback.device?.id === targetDeviceId && playback.is_playing === false
+                this.isPlaybackStateForReset(playback, targetDeviceId) && playback.is_playing === false
             ));
             if (!pauseConfirmed) {
                 lastFailure = {
@@ -402,16 +405,28 @@ export class SpotifyModel {
     private async waitForPlaybackState(
         predicate: (playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>) => boolean,
     ): Promise<boolean> {
-        for (let attempt = 0; attempt < 5; attempt++) {
+        for (let attempt = 0; attempt < PLAYBACK_RESET_CONFIRMATION_ATTEMPTS; attempt++) {
             try {
                 const playback = await this.getSdk().player.getPlaybackState();
                 if (playback && predicate(playback)) return true;
             } catch (error) {
                 console.warn('Could not verify Spotify playback state:', error);
             }
-            if (attempt < 4) await this.wait(200);
+            if (attempt < PLAYBACK_RESET_CONFIRMATION_ATTEMPTS - 1) {
+                await this.wait(PLAYBACK_RESET_CONFIRMATION_INTERVAL_MS);
+            }
         }
         return false;
+    }
+
+    private isPlaybackStateForReset(
+        playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>,
+        targetDeviceId: string,
+    ): boolean {
+        // Spotify may rotate a device ID while a phone, car system, or desktop
+        // changes its active playback route. The active playback state is the
+        // state we need to time, even if its ID has changed since the command.
+        return playback.device?.id === targetDeviceId || playback.device?.is_active === true;
     }
 }
 

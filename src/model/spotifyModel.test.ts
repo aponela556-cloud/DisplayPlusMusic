@@ -136,4 +136,44 @@ describe('SpotifyModel playback controls', () => {
         expect(sdk.player.seekToPosition).toHaveBeenCalledTimes(2);
         expect(sdk.player.pausePlayback).toHaveBeenCalledTimes(2);
     });
+
+    it('allows Spotify extra time to report a reset on an active device', async () => {
+        const stalePlayback = {
+            device: { id: 'rotated-device', is_active: true, is_restricted: false },
+            is_playing: true,
+            progress_ms: 20_000,
+        };
+        const resetPlayback = {
+            device: { id: 'rotated-device', is_active: true, is_restricted: false },
+            is_playing: true,
+            progress_ms: 1_500,
+        };
+        const pausedPlayback = {
+            device: { id: 'rotated-device', is_active: true, is_restricted: false },
+            is_playing: false,
+            progress_ms: 1_500,
+        };
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 20_000,
+                })
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(stalePlayback)
+                .mockResolvedValueOnce(resetPlayback)
+                .mockResolvedValueOnce(pausedPlayback),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+
+        await expect(model.pauseAndSeekToBeginning()).resolves.toEqual({ ok: true });
+
+        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(1, 'phone-device');
+        expect(sdk.player.pausePlayback).toHaveBeenCalledWith('phone-device');
+    });
 });
