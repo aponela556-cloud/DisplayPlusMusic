@@ -16,7 +16,7 @@ export function createSyncDemoSong(): Song {
     song.addArtist('DisplayPlus Music');
     song.addAlbum('Development Mode');
     song.addDurationSeconds(60);
-    song.addProgressSeconds(0);
+    song.addProgressSeconds(30);
     song.addisPlaying(false);
     song.addChangedState(true);
     return song;

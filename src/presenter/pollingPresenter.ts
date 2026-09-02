@@ -13,13 +13,11 @@ class PollingPresenter {
     private quickTimeout: number | undefined;
     private lastFrameTime = performance.now();
 
-    async startPolling(): Promise<void> {
+    startPolling() {
         if (this.isPolling) return;
         this.isPolling = true;
         this.lastFrameTime = performance.now();
-        await this.pollAPIs();
-        if (!this.isPolling) return;
-        this.lastFrameTime = performance.now();
+        this.pollAPIs();
         this.pollQuick();
     }
 
