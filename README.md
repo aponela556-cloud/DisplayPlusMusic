@@ -19,13 +19,13 @@ http://localhost:5173/?syncDemo=1
 
 ## Spotify setup
 
-This project currently uses the existing OAuth callback:
+This project uses its own OAuth callback:
 
 ```text
-https://oliemanq.github.io/DisplayPlusMusic/
+https://aponela556-cloud.github.io/displaylyric-oauth/
 ```
 
-Keep that exact URI in your Spotify Developer Dashboard until DisplayLyric Music has its own deployed callback and the dashboard configuration is changed at the same time.
+Add that exact URI to your Spotify Developer Dashboard before authorizing Spotify. The callback is served by the separate public `displaylyric-oauth` repository; the main DisplayLyric Music source repository can remain private.
 
 ## Origin and licensing
 

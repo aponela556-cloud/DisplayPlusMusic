@@ -11,7 +11,7 @@ import {
 } from './lrclibMatching';
 import { SYNC_DEMO_PLAIN_LYRICS } from './syncDemoModel';
 
-const LRCLIB_CLIENT_HEADER = 'DisplayLyricMusic/2.6.1 (https://github.com/aponela556-cloud/DisplayLyricMusic)';
+const LRCLIB_CLIENT_HEADER = 'DisplayLyricMusic/2.6.2 (https://github.com/aponela556-cloud/DisplayLyricMusic)';
 const LRCLIB_REQUEST_INTERVAL_MS = 250;
 let lrclibRequestQueue: Promise<void> = Promise.resolve();
 let lastLrclibRequestFinishedAt = 0;
