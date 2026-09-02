@@ -1,20 +1,38 @@
-# DisplayPlus Music
-DisplayPlus Music is a media viewer for the Even Hub, displaying the current playing media on any device!
+# DisplayLyric Music
+
+DisplayLyric Music is a private, independent music viewer for Even Hub. It shows the current track, album art, playback progress, lyrics, Spotify playback controls, and local LRC timing tools.
 
 ## Supported services
- - Spotify (premium subscription required)
- - Navidrome (popular self hosted media service)
-     - Your server must be on at least **version 0.62**, along with a compatible client that implements the new PlaybackReport extension, such as the Web UI, Feishin on MacOS/Windows/Linux, Arpeggi on iOS, and Symphoniom on Android. Unsupported clients will cause weird playback state issues
 
-## The app includes:
- - Song info (title, artist, etc.)
- - Album art
- - Playback progress
- - Realtime synced lyrics
- - Resilient LRCLIB fallback matching for alternate releases, remasters, live versions, and Traditional/Simplified Chinese titles
- - Clear status when only non-timestamped lyrics are available
- - Playback controls (Spotify only)
+- Spotify (Premium required for playback controls)
+- Navidrome (version 0.62 or later with a compatible PlaybackReport client)
 
+## Local LRC timing
 
-## Even hub testing QR code
-<img src="src/Assets/githubpagesQR.png" alt="QR Code" width="300" />
+When LRCLIB provides only plain lyrics, the phone view offers **Create LRC** or **Continue LRC**. The editor pauses Spotify and seeks to the start, then provides Play/Pause, Mark, Undo, Save, and Cancel controls. Completed local LRC files are stored in Even Hub private storage and can be exported or copied for LRCGET.
+
+For a credential-free test, start `Start-DisplayLyricMusic-SyncDemo.cmd` and scan its QR code. The demo URL is also available at:
+
+```text
+http://localhost:5173/?syncDemo=1
+```
+
+## Spotify setup
+
+This project uses its own OAuth callback:
+
+```text
+https://aponela556-cloud.github.io/displaylyric-oauth/
+```
+
+Add that exact URI to your Spotify Developer Dashboard before authorizing Spotify. The callback is served by the separate public `displaylyric-oauth` repository; the main DisplayLyric Music source repository can remain private.
+
+## Origin and licensing
+
+DisplayLyric Music contains modified portions based on [DisplayPlus Music](https://github.com/Oliemanq/DisplayPlusMusic) by Oliemanq. The upstream package metadata declares the ISC License. See [NOTICE.md](NOTICE.md) for attribution and [LICENSE](LICENSE) for the ISC terms applying to original DisplayLyric Music contributions.
+
+DisplayLyric Music is independent and is not affiliated with or endorsed by Oliemanq, Spotify, or Even Realities.
+
+## Copyright and takedown requests
+
+If you believe material in this project infringes your copyright or other rights, email [aponela556@gmail.com](mailto:aponela556@gmail.com). Include the relevant material, the rights claimed, and contact information. Reports will be reviewed promptly and material will be removed or disabled where appropriate. See [COPYRIGHT.md](COPYRIGHT.md).

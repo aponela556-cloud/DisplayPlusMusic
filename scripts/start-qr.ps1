@@ -5,7 +5,8 @@ param(
     [ValidateRange(0, 3600)]
     [int]$AutoStopSeconds = 0,
     [switch]$SkipDependencies,
-    [switch]$SkipQr
+    [switch]$SkipQr,
+    [switch]$SyncDemo
 )
 
 Set-StrictMode -Version Latest
@@ -91,7 +92,7 @@ function Wait-HttpReady {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$runtimeDirectory = Join-Path $repoRoot ".displayplus-runtime"
+$runtimeDirectory = Join-Path $repoRoot ".displaylyric-runtime"
 $runtimeStatePath = Join-Path $runtimeDirectory "state.json"
 $stopScriptPath = Join-Path $PSScriptRoot "stop-qr.ps1"
 $viteProcess = $null
@@ -101,7 +102,7 @@ Push-Location $repoRoot
 
 try {
     if (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) {
-        throw "A previous DisplayPlus Music session was not closed. Run Stop-DisplayPlusMusic-Current.cmd first."
+        throw "A previous DisplayLyric Music session was not closed. Run Stop-DisplayLyricMusic-Current.cmd first."
     }
 
     $npmPath = Find-CommandPath -Name "npm.cmd" -FallbackPaths @("C:\Program Files\nodejs\npm.cmd")
@@ -129,11 +130,14 @@ try {
     $occupiedPort = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -ne $occupiedPort) {
-        throw "Port $Port is already in use by PID $($occupiedPort.OwningProcess). Close the old development session or run Stop-DisplayPlusMusic-Current.cmd."
+        throw "Port $Port is already in use by PID $($occupiedPort.OwningProcess). Close the old development session or run Stop-DisplayLyricMusic-Current.cmd."
     }
 
     $lanIp = Get-LanIpv4Address
     $pluginUrl = "http://${lanIp}:$Port"
+    if ($SyncDemo) {
+        $pluginUrl += "/?syncDemo=1"
+    }
     Write-Host "[2/4] LAN address: $lanIp"
 
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
@@ -141,7 +145,7 @@ try {
     $viteOutputLog = Join-Path $runtimeDirectory "vite-$timestamp.log"
     $viteErrorLog = Join-Path $runtimeDirectory "vite-$timestamp.error.log"
 
-    Write-Host "[3/4] Starting the DisplayPlus Music development server..."
+    Write-Host "[3/4] Starting the DisplayLyric Music development server..."
     $viteArguments = @(
         ('"' + $viteScript + '"'),
         "--host", "0.0.0.0",

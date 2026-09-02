@@ -2,6 +2,7 @@ import spotifyPresenter from './spotifyPresenter';
 import lyricsPresenter from './lyricsPresenter';
 import { createView } from '../view/GlassesView';
 import viewPresenter from './viewPresenter';
+import lyricsSyncPresenter from './lyricsSyncPresenter';
 
 class PollingPresenter {
     private readonly API_INTERVAL_MS = 1000; // 1000ms = 1 sec
@@ -35,6 +36,11 @@ class PollingPresenter {
             const song = spotifyPresenter.currentSong;
             if (song) {
                 await lyricsPresenter.updateLyrics(song);
+                await lyricsSyncPresenter.prepareForSong(
+                    song,
+                    lyricsPresenter.getPlainLyrics(),
+                    lyricsPresenter.hasRemoteSyncedLyrics(),
+                );
                 viewPresenter.updateHTML(song);
             }
             if (spotifyPresenter.nextSong) {

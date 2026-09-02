@@ -5,12 +5,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$runtimeDirectory = Join-Path $repoRoot ".displayplus-runtime"
+$runtimeDirectory = Join-Path $repoRoot ".displaylyric-runtime"
 $runtimeStatePath = Join-Path $runtimeDirectory "state.json"
 
 if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf)) {
     if (-not $Quiet) {
-        Write-Host "No managed DisplayPlus Music development session is running."
+        Write-Host "No managed DisplayLyric Music development session is running."
     }
     return
 }
@@ -34,11 +34,11 @@ if ($null -ne $process) {
 
     Stop-Process -Id $process.Id -Force
     if (-not $Quiet) {
-        Write-Host "[STOP] DisplayPlus Music development server (PID $($process.Id))"
+        Write-Host "[STOP] DisplayLyric Music development server (PID $($process.Id))"
     }
 }
 
 Remove-Item -LiteralPath $runtimeStatePath -Force
 if (-not $Quiet) {
-    Write-Host "DisplayPlus Music development services are stopped."
+    Write-Host "DisplayLyric Music development services are stopped."
 }

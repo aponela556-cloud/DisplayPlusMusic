@@ -6,6 +6,8 @@ import { storage } from '../utils/storage';
 import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
 
+const PLAYBACK_RESET_POSITION_MS = 1;
+
 function clampProgress(seconds: number, durationSeconds: number): number {
     const clamped = durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds;
     return Math.max(0, clamped);
@@ -91,20 +93,34 @@ export async function initSpotify(): Promise<void> {
     }
 }
 
-class SpotifyModel {
+export class SpotifyModel {
     private lastSong = new Song();
     currentSong = new Song();
     deviceId = '';
+    private playbackAvailable = false;
+
+    constructor(
+        private readonly getSdk: () => SpotifyApi = () => spotifysdk,
+        private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => (
+            new Promise(resolve => setTimeout(resolve, milliseconds))
+        ),
+    ) {}
+
+    isPlaybackAvailable(): boolean {
+        return this.playbackAvailable;
+    }
 
     async fetchCurrentTrack(): Promise<Song> {
         let result;
         try {
-            result = await spotifysdk.player.getPlaybackState();
+            result = await this.getSdk().player.getPlaybackState();
         } catch {
+            this.playbackAvailable = false;
             return song_placeholder;
         }
 
         if (!result?.device?.id) {
+            this.playbackAvailable = false;
             // Nothing playing — return last known song paused, or placeholder
             if (this.lastSong.songID !== '0') {
                 this.lastSong.addisPlaying(false);
@@ -117,6 +133,7 @@ class SpotifyModel {
             console.log(`Device ID: ${this.deviceId} → ${result.device.id}`);
             this.deviceId = result.device.id;
         }
+        this.playbackAvailable = true;
 
         if (!result.item) return song_placeholder;
 
@@ -186,7 +203,7 @@ class SpotifyModel {
 
     async fetchNextTrack(): Promise<Song | undefined> {
         try {
-            const queue = await spotifysdk.player.getUsersQueue();
+            const queue = await this.getSdk().player.getUsersQueue();
             const next = queue?.queue?.[0];
             if (next?.type === 'track') {
                 const track = next as Track;
@@ -222,31 +239,190 @@ class SpotifyModel {
         }
     }
 
-    async song_Pause() {
+    async song_Pause(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
+            await this.getSdk().player.pausePlayback(targetDeviceId);
             this.currentSong?.addisPlaying(false);
-            await spotifysdk.player.pausePlayback(this.deviceId);
-        } catch (e) { console.error('Pause failed:', e); }
+            this.playbackAvailable = true;
+            return true;
+        } catch (e) {
+            console.error('Pause failed:', e);
+            this.playbackAvailable = false;
+            return false;
+        }
     }
 
-    async song_Play() {
+    async song_Play(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
+            await this.getSdk().player.startResumePlayback(targetDeviceId);
             this.currentSong?.addisPlaying(true);
-            await spotifysdk.player.startResumePlayback(this.deviceId);
-        } catch (e) { console.error('Play failed:', e); }
+            this.playbackAvailable = true;
+            return true;
+        } catch (e) {
+            console.error('Play failed:', e);
+            this.currentSong?.addisPlaying(false);
+            this.playbackAvailable = false;
+            return false;
+        }
+    }
+
+    async pauseAndSeekToBeginning(): Promise<PlaybackResetResult> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) {
+            return {
+                ok: false,
+                stage: 'device',
+                message: 'Spotify device unavailable - open Spotify and tap Retry Reset',
+            };
+        }
+
+        const sdk = this.getSdk();
+        let lastFailure: PlaybackResetFailure = {
+            ok: false,
+            stage: 'seek',
+            message: 'Could not seek Spotify to start - tap Retry Reset',
+        };
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                // Seek while the device is still active. Spotify does not guarantee
+                // ordering between Player commands, so confirm this state before pausing.
+                await sdk.player.seekToPosition(PLAYBACK_RESET_POSITION_MS, targetDeviceId);
+            } catch (error) {
+                console.error('Seek to beginning failed:', error);
+                lastFailure = {
+                    ok: false,
+                    stage: 'seek',
+                    message: 'Could not seek Spotify to start - tap Retry Reset',
+                };
+                if (attempt === 0) await this.wait(250);
+                continue;
+            }
+
+            const seekConfirmed = await this.waitForPlaybackState(playback => (
+                playback.device?.id === targetDeviceId &&
+                (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= 2000
+            ));
+            if (!seekConfirmed) {
+                lastFailure = {
+                    ok: false,
+                    stage: 'seek',
+                    message: 'Spotify did not confirm the start position - tap Retry Reset',
+                };
+                continue;
+            }
+
+            try {
+                await sdk.player.pausePlayback(targetDeviceId);
+            } catch (error) {
+                console.error('Pause after seek failed:', error);
+                lastFailure = {
+                    ok: false,
+                    stage: 'pause',
+                    message: 'Could not pause Spotify - tap Retry Reset',
+                };
+                if (attempt === 0) await this.wait(250);
+                continue;
+            }
+
+            const pauseConfirmed = await this.waitForPlaybackState(playback => (
+                playback.device?.id === targetDeviceId && playback.is_playing === false
+            ));
+            if (!pauseConfirmed) {
+                lastFailure = {
+                    ok: false,
+                    stage: 'pause',
+                    message: 'Spotify did not confirm pause - tap Retry Reset',
+                };
+                continue;
+            }
+
+            this.currentSong?.addisPlaying(false);
+            this.currentSong?.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
+            this.playbackAvailable = true;
+            return { ok: true };
+        }
+
+        this.playbackAvailable = false;
+        return lastFailure;
     }
 
     async song_Back() {
         try {
-            await spotifysdk.player.skipToPrevious(this.deviceId);
+            await this.getSdk().player.skipToPrevious(this.deviceId);
         } catch (e) { console.error('Back failed:', e); }
     }
 
     async song_Forward() {
         try {
-            await spotifysdk.player.skipToNext(this.deviceId);
+            await this.getSdk().player.skipToNext(this.deviceId);
         } catch (e) { console.error('Forward failed:', e); }
     }
+
+    private async resolvePlaybackDeviceId(): Promise<string> {
+        const sdk = this.getSdk();
+        const cachedDeviceId = this.deviceId;
+
+        try {
+            const playback = await sdk.player.getPlaybackState();
+            const activeDeviceId = playback?.device?.id;
+            if (activeDeviceId && !playback.device.is_restricted) {
+                this.deviceId = activeDeviceId;
+                this.playbackAvailable = true;
+                return activeDeviceId;
+            }
+        } catch (e) {
+            console.warn('Could not refresh Spotify playback state:', e);
+        }
+
+        try {
+            const response = await sdk.player.getAvailableDevices();
+            const devices = response?.devices ?? [];
+            const target = devices.find(device => device.is_active && device.id && !device.is_restricted)
+                ?? devices.find(device => device.id === cachedDeviceId && !device.is_restricted)
+                ?? devices.find(device => device.id && !device.is_restricted);
+            if (target?.id) {
+                this.deviceId = target.id;
+                this.playbackAvailable = true;
+                return target.id;
+            }
+        } catch (e) {
+            console.warn('Could not refresh Spotify devices:', e);
+        }
+
+        if (cachedDeviceId) return cachedDeviceId;
+        this.playbackAvailable = false;
+        return '';
+    }
+
+    private async waitForPlaybackState(
+        predicate: (playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>) => boolean,
+    ): Promise<boolean> {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                const playback = await this.getSdk().player.getPlaybackState();
+                if (playback && predicate(playback)) return true;
+            } catch (error) {
+                console.warn('Could not verify Spotify playback state:', error);
+            }
+            if (attempt < 4) await this.wait(200);
+        }
+        return false;
+    }
+}
+
+export type PlaybackResetStage = 'device' | 'seek' | 'pause';
+
+export type PlaybackResetResult = { ok: true } | PlaybackResetFailure;
+
+export interface PlaybackResetFailure {
+    ok: false;
+    stage: PlaybackResetStage;
+    message: string;
 }
 
 const spotifyModel = new SpotifyModel();
