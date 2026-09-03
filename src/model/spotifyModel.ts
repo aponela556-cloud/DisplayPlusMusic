@@ -5,8 +5,12 @@ import { downloadImageAsGrayscalePng, downloadImage } from './imageModel';
 import { storage } from '../utils/storage';
 import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
+import { EvenHubSpotifyDeserializer } from './evenHubSpotifyDeserializer';
 
-const PLAYBACK_RESET_POSITION_MS = 1;
+const PLAYBACK_RESET_POSITION_MS = 0;
+const PLAYBACK_RESET_CONFIRMATION_ATTEMPTS = 12;
+const PLAYBACK_RESET_CONFIRMATION_INTERVAL_MS = 250;
+const PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS = 3_000;
 
 function clampProgress(seconds: number, durationSeconds: number): number {
     const clamped = durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds;
@@ -77,13 +81,17 @@ export async function initSpotify(): Promise<void> {
             await storage.setItem('spotify_refresh_token', refreshToken!).catch(console.error);
         }
 
-        spotifysdk = SpotifyApi.withAccessToken(clientId, {
-            access_token: authData.access_token,
-            token_type: authData.token_type ?? 'Bearer',
-            expires_in: authData.expires_in,
-            refresh_token: refreshToken ?? '',
-            expires: Date.now() + authData.expires_in * 1000,
-        });
+        spotifysdk = SpotifyApi.withAccessToken(
+            clientId,
+            {
+                access_token: authData.access_token,
+                token_type: authData.token_type ?? 'Bearer',
+                expires_in: authData.expires_in,
+                refresh_token: refreshToken ?? '',
+                expires: Date.now() + authData.expires_in * 1000,
+            },
+            { deserializer: new EvenHubSpotifyDeserializer() },
+        );
 
         console.log('Spotify SDK initialized.');
     } catch (e) {
@@ -271,7 +279,7 @@ export class SpotifyModel {
     }
 
     async pauseAndSeekToBeginning(): Promise<PlaybackResetResult> {
-        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        let targetDeviceId = await this.resolvePlaybackDeviceId();
         if (!targetDeviceId) {
             return {
                 ok: false,
@@ -291,22 +299,24 @@ export class SpotifyModel {
             try {
                 // Seek while the device is still active. Spotify does not guarantee
                 // ordering between Player commands, so confirm this state before pausing.
-                await sdk.player.seekToPosition(PLAYBACK_RESET_POSITION_MS, targetDeviceId);
+                await this.seekToBeginning(sdk, targetDeviceId);
             } catch (error) {
                 console.error('Seek to beginning failed:', error);
                 lastFailure = {
                     ok: false,
                     stage: 'seek',
-                    message: 'Could not seek Spotify to start - tap Retry Reset',
+                    message: this.describeSeekFailure(error),
                 };
                 if (attempt === 0) await this.wait(250);
                 continue;
             }
 
-            const seekConfirmed = await this.waitForPlaybackState(playback => (
-                playback.device?.id === targetDeviceId &&
-                (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= 2000
-            ));
+            const seekConfirmed = await this.waitForPlaybackState(playback => {
+                const isAtStart = this.isPlaybackStateForReset(playback, targetDeviceId) &&
+                    (playback.progress_ms ?? Number.POSITIVE_INFINITY) <= PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS;
+                if (isAtStart && playback.device?.id) targetDeviceId = playback.device.id;
+                return isAtStart;
+            });
             if (!seekConfirmed) {
                 lastFailure = {
                     ok: false,
@@ -330,7 +340,7 @@ export class SpotifyModel {
             }
 
             const pauseConfirmed = await this.waitForPlaybackState(playback => (
-                playback.device?.id === targetDeviceId && playback.is_playing === false
+                this.isPlaybackStateForReset(playback, targetDeviceId) && playback.is_playing === false
             ));
             if (!pauseConfirmed) {
                 lastFailure = {
@@ -402,16 +412,69 @@ export class SpotifyModel {
     private async waitForPlaybackState(
         predicate: (playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>) => boolean,
     ): Promise<boolean> {
-        for (let attempt = 0; attempt < 5; attempt++) {
+        for (let attempt = 0; attempt < PLAYBACK_RESET_CONFIRMATION_ATTEMPTS; attempt++) {
             try {
                 const playback = await this.getSdk().player.getPlaybackState();
                 if (playback && predicate(playback)) return true;
             } catch (error) {
                 console.warn('Could not verify Spotify playback state:', error);
             }
-            if (attempt < 4) await this.wait(200);
+            if (attempt < PLAYBACK_RESET_CONFIRMATION_ATTEMPTS - 1) {
+                await this.wait(PLAYBACK_RESET_CONFIRMATION_INTERVAL_MS);
+            }
         }
         return false;
+    }
+
+    private async seekToBeginning(sdk: SpotifyApi, targetDeviceId: string): Promise<void> {
+        try {
+            await sdk.player.seekToPosition(PLAYBACK_RESET_POSITION_MS, targetDeviceId);
+        } catch (targetedError) {
+            // A reported device ID can become stale while Spotify changes its
+            // playback route. Retrying without it targets the active player.
+            console.warn('Seek with the reported Spotify device failed; retrying active player:', targetedError);
+            await sdk.player.seekToPosition(PLAYBACK_RESET_POSITION_MS);
+        }
+    }
+
+    private describeSeekFailure(error: unknown): string {
+        const detail = error instanceof Error ? error.message : String(error ?? '');
+        if (/401|expired token|re-authenticate/i.test(detail)) {
+            return 'Spotify authorisation expired - reconnect Spotify, then retry';
+        }
+        if (/403|premium|not allowed/i.test(detail)) {
+            return 'Spotify rejected playback control - check Premium and reconnect Spotify';
+        }
+        if (/404|no active device|device not found/i.test(detail)) {
+            return 'Spotify has no active player - open Spotify and play this song once, then retry';
+        }
+        if (/network|fetch|failed to fetch|timeout/i.test(detail)) {
+            return 'Could not reach Spotify - check your network and tap Retry Reset';
+        }
+        const summary = this.safeErrorSummary(detail);
+        return summary
+            ? `Spotify seek failed (${summary}) - tap Retry Reset`
+            : 'Could not seek Spotify to start - open Spotify, play this song once, then retry';
+    }
+
+    private safeErrorSummary(detail: string): string {
+        return detail
+            .replace(/bearer\s+[\w.-]+/gi, 'Bearer [redacted]')
+            .replace(/(access[_-]?token|refresh[_-]?token|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 96);
+    }
+
+    private isPlaybackStateForReset(
+        playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>>,
+        targetDeviceId: string,
+    ): boolean {
+        // Spotify may rotate a device ID while a phone, car system, or desktop
+        // changes its active playback route. The active playback state is the
+        // state we need to time, even if its ID has changed since the command.
+        return playback.device?.id === targetDeviceId || playback.device?.is_active === true;
     }
 }
 
