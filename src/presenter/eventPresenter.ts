@@ -50,7 +50,17 @@ export async function eventHandler() {
             if (selectedName === '◁◁') await previous();
             else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
             else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
-            else showPlaybackCommandStatus(spotifyPresenter.currentSong, 'BUTTON EVENT: UNKNOWN');
+            else {
+                const indexText = selectedIndex === undefined || selectedIndex === null
+                    ? '-'
+                    : String(selectedIndex);
+                const nameText = selectedName ? selectedName.slice(0, 16) : '-';
+                showPlaybackCommandStatus(
+                    spotifyPresenter.currentSong,
+                    `BUTTON i:${indexText} n:${nameText}`,
+                    5000,
+                );
+            }
             return;
         }
 
