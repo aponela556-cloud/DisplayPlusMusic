@@ -117,6 +117,25 @@ describe('SpotifyModel playback controls', () => {
         expect(sdk.player.pausePlayback).not.toHaveBeenCalled();
     });
 
+    it('shows a redacted seek error summary when Spotify returns an unknown failure', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const sdk = createSdk({
+            seekToPosition: vi.fn().mockRejectedValue(
+                new Error('WebView transport denied; access_token=secret-value'),
+            ),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+
+        const result = await model.pauseAndSeekToBeginning();
+
+        expect(result).toEqual({
+            ok: false,
+            stage: 'seek',
+            message: 'Spotify seek failed (WebView transport denied; access_token=[redacted]) - tap Retry Reset',
+        });
+    });
+
     it('reports a pause failure after the start position is confirmed', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const sdk = createSdk({

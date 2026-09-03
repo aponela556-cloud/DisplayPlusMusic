@@ -446,7 +446,20 @@ export class SpotifyModel {
         if (/network|fetch|failed to fetch|timeout/i.test(detail)) {
             return 'Could not reach Spotify - check your network and tap Retry Reset';
         }
-        return 'Could not seek Spotify to start - open Spotify, play this song once, then retry';
+        const summary = this.safeErrorSummary(detail);
+        return summary
+            ? `Spotify seek failed (${summary}) - tap Retry Reset`
+            : 'Could not seek Spotify to start - open Spotify, play this song once, then retry';
+    }
+
+    private safeErrorSummary(detail: string): string {
+        return detail
+            .replace(/bearer\s+[\w.-]+/gi, 'Bearer [redacted]')
+            .replace(/(access[_-]?token|refresh[_-]?token|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 96);
     }
 
     private isPlaybackStateForReset(
