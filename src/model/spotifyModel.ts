@@ -361,16 +361,28 @@ export class SpotifyModel {
         return lastFailure;
     }
 
-    async song_Back() {
+    async song_Back(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
-            await this.getSdk().player.skipToPrevious(this.deviceId);
-        } catch (e) { console.error('Back failed:', e); }
+            await this.getSdk().player.skipToPrevious(targetDeviceId);
+            return true;
+        } catch (e) {
+            console.error('Back failed:', e);
+            return false;
+        }
     }
 
-    async song_Forward() {
+    async song_Forward(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
-            await this.getSdk().player.skipToNext(this.deviceId);
-        } catch (e) { console.error('Forward failed:', e); }
+            await this.getSdk().player.skipToNext(targetDeviceId);
+            return true;
+        } catch (e) {
+            console.error('Forward failed:', e);
+            return false;
+        }
     }
 
     private async resolvePlaybackDeviceId(): Promise<string> {
