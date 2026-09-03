@@ -22,19 +22,19 @@ export async function eventHandler() {
         if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
-            if (selectedName === '◁◁') spotifyPresenter.song_back();
+            if (selectedName === '◁◁') await spotifyPresenter.song_back();
             else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
-            else if (selectedName === '▷▷') spotifyPresenter.song_forward();
+            else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
             if (selectedName) return;
             switch (normalizedEvent.listEvent.currentSelectItemIndex) {
                 case 0:
-                    spotifyPresenter.song_back();
+                    await spotifyPresenter.song_back();
                     break;
                 case 1:
                     spotifyPresenter.song_pauseplay();
                     break;
                 case 2:
-                    spotifyPresenter.song_forward();
+                    await spotifyPresenter.song_forward();
                     break;
             }
             return;

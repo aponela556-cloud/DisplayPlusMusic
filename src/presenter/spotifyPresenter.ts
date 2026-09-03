@@ -89,19 +89,19 @@ class SpotifyPresenter {
 
         this.currentSong?.isPlaying ? spotifyModel.song_Pause() : spotifyModel.song_Play();
     }
-    song_back() {
+    async song_back(): Promise<boolean> {
         if (this.activeSource === 'navidrome') {
-            navidromeModel.song_Back();
-            return;
+            await navidromeModel.song_Back();
+            return false;
         }
-        spotifyModel.song_Back();
+        return spotifyModel.song_Back();
     }
-    song_forward() {
+    async song_forward(): Promise<boolean> {
         if (this.activeSource === 'navidrome') {
-            navidromeModel.song_Forward();
-            return;
+            await navidromeModel.song_Forward();
+            return false;
         }
-        spotifyModel.song_Forward();
+        return spotifyModel.song_Forward();
     }
 
     async setNavidromeClient(clientName: string) {
