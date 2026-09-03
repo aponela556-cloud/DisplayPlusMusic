@@ -280,7 +280,14 @@ class ViewPresenter {
     }
     async backTrack(): Promise<void> {
         if (lyricsSyncPresenter.isEditing()) return;
-        await spotifyPresenter.song_back();
+        const result = await spotifyPresenter.song_back();
+        if (result.changed) return;
+
+        const button = document.getElementById('previous-track') as HTMLButtonElement | null;
+        if (!button) return;
+        const originalLabel = button.textContent;
+        button.textContent = result.message;
+        window.setTimeout(() => { button.textContent = originalLabel; }, 2500);
     }
 
     async saveAndAuthorize() {

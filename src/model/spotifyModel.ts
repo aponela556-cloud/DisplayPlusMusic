@@ -361,15 +361,33 @@ export class SpotifyModel {
         return lastFailure;
     }
 
-    async song_Back(): Promise<boolean> {
+    async song_Back(): Promise<PlaybackNavigationResult> {
         const targetDeviceId = await this.resolvePlaybackDeviceId();
-        if (!targetDeviceId) return false;
+        if (!targetDeviceId) {
+            return { ok: false, changed: false, message: 'Spotify has no active player' };
+        }
+        const previousTrackId = this.currentSong?.songID;
+        const previousProgressMs = (this.currentSong?.progressSeconds ?? 0) * 1000;
         try {
             await this.getSdk().player.skipToPrevious(targetDeviceId);
-            return true;
+            const changed = await this.waitForPlaybackState(playback => {
+                const trackChanged = Boolean(previousTrackId && playback.item?.id && playback.item.id !== previousTrackId);
+                const restartedCurrentTrack = Boolean(
+                    previousTrackId && playback.item?.id === previousTrackId &&
+                    previousProgressMs >= 3_000 && (playback.progress_ms ?? previousProgressMs) < 2_000,
+                );
+                return trackChanged || restartedCurrentTrack;
+            });
+            return changed
+                ? { ok: true, changed: true, message: 'Previous track started' }
+                : {
+                    ok: true,
+                    changed: false,
+                    message: 'Spotify accepted Previous, but playback did not change',
+                };
         } catch (e) {
             console.error('Back failed:', e);
-            return false;
+            return { ok: false, changed: false, message: 'Spotify rejected Previous' };
         }
     }
 
@@ -497,6 +515,12 @@ export type PlaybackResetResult = { ok: true } | PlaybackResetFailure;
 export interface PlaybackResetFailure {
     ok: false;
     stage: PlaybackResetStage;
+    message: string;
+}
+
+export interface PlaybackNavigationResult {
+    ok: boolean;
+    changed: boolean;
     message: string;
 }
 

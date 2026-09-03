@@ -70,14 +70,44 @@ describe('SpotifyModel playback controls', () => {
     });
 
     it('refreshes a stale device id before skipping to the previous track', async () => {
-        const sdk = createSdk();
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'previous-track' },
+                    progress_ms: 0,
+                }),
+        });
         const model = new SpotifyModel(() => sdk);
         model.deviceId = 'stale-device';
+        model.currentSong.addID('current-track');
 
-        await expect(model.song_Back()).resolves.toBe(true);
+        await expect(model.song_Back()).resolves.toMatchObject({ ok: true, changed: true });
 
         expect(sdk.player.skipToPrevious).toHaveBeenCalledWith('phone-device');
         expect(model.deviceId).toBe('phone-device');
+    });
+
+    it('reports when Spotify accepts Previous without changing playback', async () => {
+        const sdk = createSdk({
+            getPlaybackState: vi.fn().mockResolvedValue({
+                device: { id: 'phone-device', is_active: true, is_restricted: false },
+                item: { id: 'current-track' },
+                progress_ms: 12_000,
+            }),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+        model.currentSong.addID('current-track');
+        model.currentSong.addProgressSeconds(12);
+
+        await expect(model.song_Back()).resolves.toEqual({
+            ok: true,
+            changed: false,
+            message: 'Spotify accepted Previous, but playback did not change',
+        });
     });
 
     it('refreshes a stale device id before skipping to the next track', async () => {
