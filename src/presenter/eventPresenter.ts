@@ -27,7 +27,7 @@ export async function eventHandler() {
             const previous = async () => {
                 report('PREVIOUS…');
                 const result = await spotifyPresenter.song_back();
-                report(result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED');
+                report(result.message);
             };
 
             // The Even Hub list event uses 1 for the middle control and 2 for
