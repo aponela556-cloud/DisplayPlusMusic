@@ -23,7 +23,6 @@ export async function eventHandler() {
         if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedIndex = normalizedEvent.listEvent.currentSelectItemIndex;
-            const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
             const report = (message: string) => showPlayerMessage(message);
             const previous = async () => {
                 report('PREVIOUS…');
@@ -31,31 +30,22 @@ export async function eventHandler() {
                 report(result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED');
             };
 
-            // The glasses can return a display-normalized item name. The index
-            // is the stable identifier for this fixed three-button list.
+            // The Even Hub list event uses 1 for the middle control and 2 for
+            // the right control.  The left control can arrive with index 0 or
+            // without an index/name at all on a physical device.  Preserve the
+            // original DisplayPlus Music fallback: anything other than 1 or 2
+            // is Previous.
             switch (selectedIndex) {
-                case 0:
-                    await previous();
-                    return;
                 case 1:
                     spotifyPresenter.song_pauseplay();
                     return;
                 case 2:
                     await spotifyPresenter.song_forward();
                     return;
+                default:
+                    await previous();
+                    return;
             }
-
-            if (selectedName === '◁◁') await previous();
-            else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
-            else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
-            else {
-                const indexText = selectedIndex === undefined || selectedIndex === null
-                    ? '-'
-                    : String(selectedIndex);
-                const nameText = selectedName ? selectedName.slice(0, 16) : '-';
-                report(`BUTTON i:${indexText} n:${nameText}`);
-            }
-            return;
         }
 
         if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
