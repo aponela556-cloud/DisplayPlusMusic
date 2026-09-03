@@ -33,8 +33,6 @@ let lastSentSongInfoText = '';
 let lastSentPlaybackBarText = '';
 let lastSentSyncText = '';
 let pendingSong: Song | null = null;
-let playbackCommandStatus = '';
-let playbackCommandStatusUntil = 0;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
     return Promise.race([
@@ -175,8 +173,7 @@ export async function createView(song: Song): Promise<void> {
         const showPlaybackButtons = activeSource !== 'navidrome';
         const modeKey = editing ? 'sync-editor' : activeSource;
         const songInfoText = `${song.title}\n${song.artist}\n${song.album}`;
-        const transientStatus = Date.now() < playbackCommandStatusUntil ? playbackCommandStatus : '';
-        const playbackBarText = `${formatTime(song.progressSeconds)}               -${formatTime(Math.max(0, song.durationSeconds - song.progressSeconds))}\n` +`${song.createPlaybackBar(MAX_WIDTH)}\n` + `${lyricsPresenter.currentLineFormatted}\n` + (transientStatus || `           ${lyricsPresenter.nextLine}`);
+        const playbackBarText = `${formatTime(song.progressSeconds)}               -${formatTime(Math.max(0, song.durationSeconds - song.progressSeconds))}\n` +`${song.createPlaybackBar(MAX_WIDTH)}\n` + `${lyricsPresenter.currentLineFormatted}\n` + `           ${lyricsPresenter.nextLine}`;
         const syncText = lyricsSyncPresenter.getGlassesContent();
         const buildConfig = () => editing
             ? buildSyncConfig(syncText)
@@ -278,11 +275,4 @@ export async function createView(song: Song): Promise<void> {
 
 export function requestImmediateViewRefresh(song: Song): void {
     void createView(song);
-}
-
-export function showPlaybackCommandStatus(song: Song, message: string, durationMs = 3000): void {
-    playbackCommandStatus = message;
-    playbackCommandStatusUntil = Date.now() + durationMs;
-    requestImmediateViewRefresh(song);
-    window.setTimeout(() => requestImmediateViewRefresh(song), durationMs + 50);
 }

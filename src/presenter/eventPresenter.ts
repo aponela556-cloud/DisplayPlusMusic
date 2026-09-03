@@ -2,7 +2,6 @@ import { OsEventTypeList, waitForEvenAppBridge } from '@evenrealities/even_hub_s
 import spotifyPresenter from './spotifyPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { normalizeEvenHubEvent } from '../model/evenHubEventModel';
-import { showPlaybackCommandStatus } from '../view/GlassesView';
 import { showPlayerMessage } from './viewPresenter';
 
 export async function eventHandler() {
@@ -25,10 +24,7 @@ export async function eventHandler() {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedIndex = normalizedEvent.listEvent.currentSelectItemIndex;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
-            const report = (message: string, durationMs?: number) => {
-                showPlaybackCommandStatus(spotifyPresenter.currentSong, message, durationMs);
-                showPlayerMessage(message);
-            };
+            const report = (message: string) => showPlayerMessage(message);
             const previous = async () => {
                 report('PREVIOUS…');
                 const result = await spotifyPresenter.song_back();
@@ -57,7 +53,7 @@ export async function eventHandler() {
                     ? '-'
                     : String(selectedIndex);
                 const nameText = selectedName ? selectedName.slice(0, 16) : '-';
-                report(`BUTTON i:${indexText} n:${nameText}`, 5000);
+                report(`BUTTON i:${indexText} n:${nameText}`);
             }
             return;
         }
