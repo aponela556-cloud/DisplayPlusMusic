@@ -5,6 +5,7 @@ import { downloadImageAsGrayscalePng, downloadImage } from './imageModel';
 import { storage } from '../utils/storage';
 import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
+import { EvenHubSpotifyDeserializer } from './evenHubSpotifyDeserializer';
 
 const PLAYBACK_RESET_POSITION_MS = 0;
 const PLAYBACK_RESET_CONFIRMATION_ATTEMPTS = 12;
@@ -80,13 +81,17 @@ export async function initSpotify(): Promise<void> {
             await storage.setItem('spotify_refresh_token', refreshToken!).catch(console.error);
         }
 
-        spotifysdk = SpotifyApi.withAccessToken(clientId, {
-            access_token: authData.access_token,
-            token_type: authData.token_type ?? 'Bearer',
-            expires_in: authData.expires_in,
-            refresh_token: refreshToken ?? '',
-            expires: Date.now() + authData.expires_in * 1000,
-        });
+        spotifysdk = SpotifyApi.withAccessToken(
+            clientId,
+            {
+                access_token: authData.access_token,
+                token_type: authData.token_type ?? 'Bearer',
+                expires_in: authData.expires_in,
+                refresh_token: refreshToken ?? '',
+                expires: Date.now() + authData.expires_in * 1000,
+            },
+            { deserializer: new EvenHubSpotifyDeserializer() },
+        );
 
         console.log('Spotify SDK initialized.');
     } catch (e) {
