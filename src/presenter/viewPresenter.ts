@@ -19,6 +19,11 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
+export function showPlayerMessage(message: string): void {
+    const target = document.getElementById('player-message');
+    if (target) target.textContent = message;
+}
+
 class ViewPresenter {
     private lastSongID: string = ""
     private lastBlobUrl?: string;
@@ -46,14 +51,14 @@ class ViewPresenter {
         sourceSelect?.addEventListener('change', toggleAuthFields);
 
         // Media Controls
-        document.getElementById('skip-track')?.addEventListener('click', () => {
-            this.forwardTrack();
+        document.getElementById('skip-track')?.addEventListener('click', async () => {
+            await this.forwardTrack();
         });
         document.getElementById('play-pause')?.addEventListener('click', async () => {
             await this.playPauseTrack();
         });
-        document.getElementById('previous-track')?.addEventListener('click', () => {
-            this.backTrack();
+        document.getElementById('previous-track')?.addEventListener('click', async () => {
+            await this.backTrack();
         });
 
         document.getElementById('offset-decrease')?.addEventListener('click', () => {
@@ -266,9 +271,9 @@ class ViewPresenter {
         el.textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
     }
 
-    forwardTrack() {
+    async forwardTrack(): Promise<void> {
         if (lyricsSyncPresenter.isEditing()) return;
-        spotifyPresenter.song_forward();
+        await spotifyPresenter.song_forward();
     }
     async playPauseTrack(): Promise<void> {
         if (lyricsSyncPresenter.isEditing()) {
@@ -278,9 +283,16 @@ class ViewPresenter {
         }
         spotifyPresenter.song_pauseplay();
     }
-    backTrack() {
+    async backTrack(): Promise<void> {
         if (lyricsSyncPresenter.isEditing()) return;
-        spotifyPresenter.song_back();
+        const result = await spotifyPresenter.song_back();
+        if (result.changed) return;
+
+        const button = document.getElementById('previous-track') as HTMLButtonElement | null;
+        if (!button) return;
+        const originalLabel = button.textContent;
+        button.textContent = result.message;
+        window.setTimeout(() => { button.textContent = originalLabel; }, 2500);
     }
 
     async saveAndAuthorize() {

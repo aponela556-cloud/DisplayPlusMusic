@@ -11,6 +11,7 @@ const PLAYBACK_RESET_POSITION_MS = 0;
 const PLAYBACK_RESET_CONFIRMATION_ATTEMPTS = 12;
 const PLAYBACK_RESET_CONFIRMATION_INTERVAL_MS = 250;
 const PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS = 3_000;
+const PREVIOUS_RESTART_THRESHOLD_MS = 3_000;
 
 function clampProgress(seconds: number, durationSeconds: number): number {
     const clamped = durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds;
@@ -361,16 +362,79 @@ export class SpotifyModel {
         return lastFailure;
     }
 
-    async song_Back() {
+    async song_Back(): Promise<PlaybackNavigationResult> {
+        const sdk = this.getSdk();
+        let playback: Awaited<ReturnType<SpotifyApi['player']['getPlaybackState']>> | null = null;
         try {
-            await this.getSdk().player.skipToPrevious(this.deviceId);
-        } catch (e) { console.error('Back failed:', e); }
+            playback = await sdk.player.getPlaybackState();
+        } catch (error) {
+            console.warn('Could not read Spotify playback state before Previous:', error);
+        }
+
+        const activeDeviceId = playback?.device?.id;
+        const targetDeviceId = activeDeviceId && !playback?.device?.is_restricted
+            ? activeDeviceId
+            : await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) {
+            return { ok: false, changed: false, message: 'Spotify has no active player' };
+        }
+
+        this.deviceId = targetDeviceId;
+        this.playbackAvailable = true;
+        const currentTrackId = playback?.item?.id ?? this.currentSong?.songID;
+        const currentProgressMs = playback?.progress_ms ?? (this.currentSong?.progressSeconds ?? 0) * 1000;
+
+        // Match the familiar Spotify-player control: after the opening few
+        // seconds, Previous restarts this song. Near its start, it moves to the
+        // prior queue item. A fresh API playback state is used rather than the
+        // rendered progress, which may be delayed by the display polling loop.
+        if (currentProgressMs >= PREVIOUS_RESTART_THRESHOLD_MS) {
+            try {
+                await this.seekToBeginning(sdk, targetDeviceId);
+                const restarted = await this.waitForPlaybackState(nextPlayback => (
+                    this.isPlaybackStateForReset(nextPlayback, targetDeviceId) &&
+                    (!currentTrackId || nextPlayback.item?.id === currentTrackId) &&
+                    (nextPlayback.progress_ms ?? Number.POSITIVE_INFINITY) <= PLAYBACK_RESET_MAX_CONFIRMED_POSITION_MS
+                ));
+                if (restarted) {
+                    this.currentSong?.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));
+                    return { ok: true, changed: true, message: 'Current track restarted' };
+                }
+                return { ok: true, changed: false, message: 'Spotify accepted restart, but playback did not reset' };
+            } catch (error) {
+                console.error('Restart current track failed:', error);
+                return { ok: false, changed: false, message: 'Spotify rejected restart' };
+            }
+        }
+
+        try {
+            await sdk.player.skipToPrevious(targetDeviceId);
+            const changed = await this.waitForPlaybackState(playback => {
+                return Boolean(currentTrackId && playback.item?.id && playback.item.id !== currentTrackId);
+            });
+            return changed
+                ? { ok: true, changed: true, message: 'Previous track started' }
+                : {
+                    ok: true,
+                    changed: false,
+                    message: 'Spotify accepted Previous, but playback did not change',
+                };
+        } catch (e) {
+            console.error('Back failed:', e);
+            return { ok: false, changed: false, message: 'Spotify rejected Previous' };
+        }
     }
 
-    async song_Forward() {
+    async song_Forward(): Promise<boolean> {
+        const targetDeviceId = await this.resolvePlaybackDeviceId();
+        if (!targetDeviceId) return false;
         try {
-            await this.getSdk().player.skipToNext(this.deviceId);
-        } catch (e) { console.error('Forward failed:', e); }
+            await this.getSdk().player.skipToNext(targetDeviceId);
+            return true;
+        } catch (e) {
+            console.error('Forward failed:', e);
+            return false;
+        }
     }
 
     private async resolvePlaybackDeviceId(): Promise<string> {
@@ -485,6 +549,12 @@ export type PlaybackResetResult = { ok: true } | PlaybackResetFailure;
 export interface PlaybackResetFailure {
     ok: false;
     stage: PlaybackResetStage;
+    message: string;
+}
+
+export interface PlaybackNavigationResult {
+    ok: boolean;
+    changed: boolean;
     message: string;
 }
 

@@ -6,7 +6,7 @@ import { storage } from '../utils/storage';
 import type { MusicSource } from '../model/musicSource';
 import { createSyncDemoSong } from '../model/syncDemoModel';
 import playbackOffsetModel from '../model/playbackOffsetModel';
-import type { PlaybackResetResult } from '../model/spotifyModel';
+import type { PlaybackNavigationResult, PlaybackResetResult } from '../model/spotifyModel';
 
 class SpotifyPresenter {
     currentSong: Song = song_placeholder;
@@ -89,19 +89,19 @@ class SpotifyPresenter {
 
         this.currentSong?.isPlaying ? spotifyModel.song_Pause() : spotifyModel.song_Play();
     }
-    song_back() {
+    async song_back(): Promise<PlaybackNavigationResult> {
         if (this.activeSource === 'navidrome') {
-            navidromeModel.song_Back();
-            return;
+            await navidromeModel.song_Back();
+            return { ok: false, changed: false, message: 'Previous track is unavailable for Navidrome' };
         }
-        spotifyModel.song_Back();
+        return spotifyModel.song_Back();
     }
-    song_forward() {
+    async song_forward(): Promise<boolean> {
         if (this.activeSource === 'navidrome') {
-            navidromeModel.song_Forward();
-            return;
+            await navidromeModel.song_Forward();
+            return false;
         }
-        spotifyModel.song_Forward();
+        return spotifyModel.song_Forward();
     }
 
     async setNavidromeClient(clientName: string) {

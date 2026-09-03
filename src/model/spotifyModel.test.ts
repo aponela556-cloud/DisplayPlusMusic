@@ -11,6 +11,8 @@ function createSdk(overrides: Record<string, unknown> = {}) {
             getAvailableDevices: vi.fn().mockResolvedValue({ devices: [] }),
             startResumePlayback: vi.fn().mockResolvedValue(undefined),
             pausePlayback: vi.fn().mockResolvedValue(undefined),
+            skipToPrevious: vi.fn().mockResolvedValue(undefined),
+            skipToNext: vi.fn().mockResolvedValue(undefined),
             seekToPosition: vi.fn().mockResolvedValue(undefined),
             ...overrides,
         },
@@ -65,6 +67,90 @@ describe('SpotifyModel playback controls', () => {
 
         expect(model.currentSong.isPlaying).toBe(false);
         expect(model.isPlaybackAvailable()).toBe(false);
+    });
+
+    it('refreshes a stale device id before skipping to the previous track', async () => {
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'previous-track' },
+                    progress_ms: 0,
+                }),
+        });
+        const model = new SpotifyModel(() => sdk);
+        model.deviceId = 'stale-device';
+        model.currentSong.addID('current-track');
+
+        await expect(model.song_Back()).resolves.toMatchObject({ ok: true, changed: true });
+
+        expect(sdk.player.skipToPrevious).toHaveBeenCalledWith('phone-device');
+        expect(model.deviceId).toBe('phone-device');
+    });
+
+    it('restarts the current track after three seconds instead of skipping back', async () => {
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'current-track' },
+                    progress_ms: 12_000,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'current-track' },
+                    progress_ms: 0,
+                }),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+        model.currentSong.addID('current-track');
+        model.currentSong.addProgressSeconds(12);
+
+        await expect(model.song_Back()).resolves.toEqual({
+            ok: true,
+            changed: true,
+            message: 'Current track restarted',
+        });
+
+        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(0, 'phone-device');
+        expect(sdk.player.skipToPrevious).not.toHaveBeenCalled();
+    });
+
+    it('skips to the previous track during the opening three seconds', async () => {
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'current-track' },
+                    progress_ms: 2_999,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'phone-device', is_active: true, is_restricted: false },
+                    item: { id: 'previous-track' },
+                    progress_ms: 0,
+                }),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+        model.currentSong.addID('current-track');
+
+        await expect(model.song_Back()).resolves.toMatchObject({ ok: true, changed: true });
+
+        expect(sdk.player.skipToPrevious).toHaveBeenCalledWith('phone-device');
+        expect(sdk.player.seekToPosition).not.toHaveBeenCalled();
+    });
+
+    it('refreshes a stale device id before skipping to the next track', async () => {
+        const sdk = createSdk();
+        const model = new SpotifyModel(() => sdk);
+        model.deviceId = 'stale-device';
+
+        await expect(model.song_Forward()).resolves.toBe(true);
+
+        expect(sdk.player.skipToNext).toHaveBeenCalledWith('phone-device');
+        expect(model.deviceId).toBe('phone-device');
     });
 
     it('confirms seek before pausing when preparing lyric timing', async () => {
