@@ -22,36 +22,35 @@ export async function eventHandler() {
 
         if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
+            const selectedIndex = normalizedEvent.listEvent.currentSelectItemIndex;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
-            if (selectedName === '◁◁') {
+            const previous = async () => {
                 showPlaybackCommandStatus(spotifyPresenter.currentSong, 'PREVIOUS…');
                 const result = await spotifyPresenter.song_back();
                 showPlaybackCommandStatus(
                     spotifyPresenter.currentSong,
                     result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED',
                 );
-            }
-            else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
-            else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
-            if (selectedName) return;
-            switch (normalizedEvent.listEvent.currentSelectItemIndex) {
+            };
+
+            // The glasses can return a display-normalized item name. The index
+            // is the stable identifier for this fixed three-button list.
+            switch (selectedIndex) {
                 case 0:
-                    showPlaybackCommandStatus(spotifyPresenter.currentSong, 'PREVIOUS…');
-                    {
-                        const result = await spotifyPresenter.song_back();
-                        showPlaybackCommandStatus(
-                            spotifyPresenter.currentSong,
-                            result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED',
-                        );
-                    }
-                    break;
+                    await previous();
+                    return;
                 case 1:
                     spotifyPresenter.song_pauseplay();
-                    break;
+                    return;
                 case 2:
                     await spotifyPresenter.song_forward();
-                    break;
+                    return;
             }
+
+            if (selectedName === '◁◁') await previous();
+            else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
+            else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
+            else showPlaybackCommandStatus(spotifyPresenter.currentSong, 'BUTTON EVENT: UNKNOWN');
             return;
         }
 
