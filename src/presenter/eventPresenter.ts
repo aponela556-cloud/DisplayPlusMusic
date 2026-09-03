@@ -3,6 +3,7 @@ import spotifyPresenter from './spotifyPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { normalizeEvenHubEvent } from '../model/evenHubEventModel';
 import { showPlaybackCommandStatus } from '../view/GlassesView';
+import { showPlayerMessage } from './viewPresenter';
 
 export async function eventHandler() {
     const bridge = await waitForEvenAppBridge();
@@ -24,13 +25,14 @@ export async function eventHandler() {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedIndex = normalizedEvent.listEvent.currentSelectItemIndex;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
+            const report = (message: string, durationMs?: number) => {
+                showPlaybackCommandStatus(spotifyPresenter.currentSong, message, durationMs);
+                showPlayerMessage(message);
+            };
             const previous = async () => {
-                showPlaybackCommandStatus(spotifyPresenter.currentSong, 'PREVIOUS…');
+                report('PREVIOUS…');
                 const result = await spotifyPresenter.song_back();
-                showPlaybackCommandStatus(
-                    spotifyPresenter.currentSong,
-                    result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED',
-                );
+                report(result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED');
             };
 
             // The glasses can return a display-normalized item name. The index
@@ -55,11 +57,7 @@ export async function eventHandler() {
                     ? '-'
                     : String(selectedIndex);
                 const nameText = selectedName ? selectedName.slice(0, 16) : '-';
-                showPlaybackCommandStatus(
-                    spotifyPresenter.currentSong,
-                    `BUTTON i:${indexText} n:${nameText}`,
-                    5000,
-                );
+                report(`BUTTON i:${indexText} n:${nameText}`, 5000);
             }
             return;
         }

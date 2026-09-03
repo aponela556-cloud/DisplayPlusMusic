@@ -69,6 +69,10 @@
         <button class="button" id="play-pause">Play/Pause</button>
         <button class="button" id="skip-track">Skip track</button>
     </span>
+    <section id="player-message-panel" class="player-message-panel" aria-live="polite">
+        <p class="player-message-title">Player messages</p>
+        <p id="player-message">Ready</p>
+    </section>
     <span class="container" id="playback-offset" >
         <button class="small-button" id="offset-decrease">
             -50ms
@@ -467,6 +471,28 @@
             gap: 12px;
         }
 
+        .player-message-panel {
+            margin: 0 12px 16px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: rgba(35, 35, 35, 0.06);
+            color: var(--text-dark);
+            font-size: 20px;
+        }
+
+        .player-message-title {
+            margin: 0 0 4px;
+            font-size: 16px;
+            font-weight: 700;
+            opacity: 0.62;
+            text-transform: uppercase;
+        }
+
+        #player-message {
+            margin: 0;
+            overflow-wrap: anywhere;
+        }
+
         .navidrome-client-picker {
             flex-direction: column;
             align-items: stretch;
@@ -652,6 +678,7 @@
         body.lyrics-sync-editing #album-art-container,
         body.lyrics-sync-editing #navidrome-client-picker,
         body.lyrics-sync-editing #mini-buttons-container,
+        body.lyrics-sync-editing #player-message-panel,
         body.lyrics-sync-editing #playback-offset,
         body.lyrics-sync-editing #lyrics-container,
         body.lyrics-sync-editing #local-lyrics-library,

@@ -19,6 +19,11 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
+export function showPlayerMessage(message: string): void {
+    const target = document.getElementById('player-message');
+    if (target) target.textContent = message;
+}
+
 class ViewPresenter {
     private lastSongID: string = ""
     private lastBlobUrl?: string;
