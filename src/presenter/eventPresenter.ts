@@ -2,6 +2,7 @@ import { OsEventTypeList, waitForEvenAppBridge } from '@evenrealities/even_hub_s
 import spotifyPresenter from './spotifyPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { normalizeEvenHubEvent } from '../model/evenHubEventModel';
+import { showPlaybackCommandStatus } from '../view/GlassesView';
 
 export async function eventHandler() {
     const bridge = await waitForEvenAppBridge();
@@ -22,13 +23,27 @@ export async function eventHandler() {
         if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedName = normalizedEvent.listEvent.currentSelectItemName?.trim();
-            if (selectedName === '◁◁') await spotifyPresenter.song_back();
+            if (selectedName === '◁◁') {
+                showPlaybackCommandStatus(spotifyPresenter.currentSong, 'PREVIOUS…');
+                const result = await spotifyPresenter.song_back();
+                showPlaybackCommandStatus(
+                    spotifyPresenter.currentSong,
+                    result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED',
+                );
+            }
             else if (selectedName === '▷ll' || selectedName === '▷Ⅱ') spotifyPresenter.song_pauseplay();
             else if (selectedName === '▷▷') await spotifyPresenter.song_forward();
             if (selectedName) return;
             switch (normalizedEvent.listEvent.currentSelectItemIndex) {
                 case 0:
-                    await spotifyPresenter.song_back();
+                    showPlaybackCommandStatus(spotifyPresenter.currentSong, 'PREVIOUS…');
+                    {
+                        const result = await spotifyPresenter.song_back();
+                        showPlaybackCommandStatus(
+                            spotifyPresenter.currentSong,
+                            result.changed ? 'PREVIOUS OK' : result.ok ? 'PREVIOUS: NO CHANGE' : 'PREVIOUS: REJECTED',
+                        );
+                    }
                     break;
                 case 1:
                     spotifyPresenter.song_pauseplay();
