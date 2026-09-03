@@ -96,7 +96,7 @@ describe('SpotifyModel playback controls', () => {
         await expect(model.pauseAndSeekToBeginning()).resolves.toEqual({ ok: true });
 
         expect(commandOrder).toEqual(['seek', 'pause']);
-        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(1, 'phone-device');
+        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(0, 'phone-device');
         expect(sdk.player.pausePlayback).toHaveBeenCalledWith('phone-device');
         expect(model.currentSong.isPlaying).toBe(false);
         expect(model.currentSong.progressSeconds).toBe(0);
@@ -113,7 +113,7 @@ describe('SpotifyModel playback controls', () => {
 
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.stage).toBe('seek');
-        expect(sdk.player.seekToPosition).toHaveBeenCalledTimes(2);
+        expect(sdk.player.seekToPosition).toHaveBeenCalledTimes(4);
         expect(sdk.player.pausePlayback).not.toHaveBeenCalled();
     });
 
@@ -173,7 +173,43 @@ describe('SpotifyModel playback controls', () => {
 
         await expect(model.pauseAndSeekToBeginning()).resolves.toEqual({ ok: true });
 
-        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(1, 'phone-device');
-        expect(sdk.player.pausePlayback).toHaveBeenCalledWith('phone-device');
+        expect(sdk.player.seekToPosition).toHaveBeenCalledWith(0, 'phone-device');
+        expect(sdk.player.pausePlayback).toHaveBeenCalledWith('rotated-device');
+    });
+
+    it('retries the active Spotify player when the reported device rejects seek', async () => {
+        const sdk = createSdk({
+            getPlaybackState: vi.fn()
+                .mockResolvedValueOnce({
+                    device: { id: 'stale-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 8_000,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'active-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 0,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'active-device', is_active: true, is_restricted: false },
+                    is_playing: true,
+                    progress_ms: 0,
+                })
+                .mockResolvedValueOnce({
+                    device: { id: 'active-device', is_active: true, is_restricted: false },
+                    is_playing: false,
+                    progress_ms: 0,
+                }),
+            seekToPosition: vi.fn()
+                .mockRejectedValueOnce(new Error('404 device not found'))
+                .mockResolvedValueOnce(undefined),
+        });
+        const model = new SpotifyModel(() => sdk, async () => undefined);
+
+        await expect(model.pauseAndSeekToBeginning()).resolves.toEqual({ ok: true });
+
+        expect(sdk.player.seekToPosition).toHaveBeenNthCalledWith(1, 0, 'stale-device');
+        expect(sdk.player.seekToPosition).toHaveBeenNthCalledWith(2, 0);
+        expect(sdk.player.pausePlayback).toHaveBeenCalledWith('active-device');
     });
 });
