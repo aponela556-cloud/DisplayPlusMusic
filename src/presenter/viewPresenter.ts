@@ -6,6 +6,11 @@ import Song from '../model/songModel';
 import { formatTime } from '../Scripts/formatTime';
 import playbackOffsetModel, { OFFSET_STEP_MS } from '../model/playbackOffsetModel';
 import localLyricsStore, { LocalLyricsRecord, parsePlainLyrics } from '../model/localLyricsModel';
+import {
+    createRecordFromLrcImport,
+    getLrcMetadataWarnings,
+    parseLrcImport,
+} from '../model/lrcImportModel';
 import lyricsPresenter from './lyricsPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { requestImmediateViewRefresh } from '../view/GlassesView';
@@ -28,6 +33,7 @@ class ViewPresenter {
     private lastSongID: string = ""
     private lastBlobUrl?: string;
     private lastLyricsSyncEditing = false;
+    private lrcImportMetadataConfirmed = false;
 
     constructor() { }
 
@@ -110,6 +116,31 @@ class ViewPresenter {
         });
         document.getElementById('refresh-local-lyrics')?.addEventListener('click', () => {
             this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('open-lrc-import')?.addEventListener('click', () => {
+            this.openLrcImport();
+        });
+        document.getElementById('lrc-import-file')?.addEventListener('change', async event => {
+            const input = event.target as HTMLInputElement;
+            const file = input.files?.[0];
+            if (!file) return;
+            try {
+                const textArea = document.getElementById('lrc-import-text') as HTMLTextAreaElement | null;
+                if (textArea) textArea.value = await file.text();
+                this.resetLrcImportConfirmation();
+                this.setLrcImportStatus(`Loaded ${file.name}`);
+            } catch {
+                this.setLrcImportStatus('Could not read this file. Paste its text instead.');
+            }
+        });
+        document.getElementById('lrc-import-text')?.addEventListener('input', () => {
+            this.resetLrcImportConfirmation();
+        });
+        document.getElementById('confirm-lrc-import')?.addEventListener('click', async () => {
+            await this.importLrc();
+        });
+        document.getElementById('cancel-lrc-import')?.addEventListener('click', () => {
+            this.closeLrcImport();
         });
         document.getElementById('copy-lrc')?.addEventListener('click', async () => {
             const value = (document.getElementById('lrc-export-text') as HTMLTextAreaElement | null)?.value ?? '';
@@ -476,6 +507,103 @@ class ViewPresenter {
         if (title) title.textContent = `Export ${record.title}`;
         if (textArea) textArea.value = record.syncedLyrics;
         if (popup) popup.style.display = 'flex';
+    }
+
+    private openLrcImport(): void {
+        const song = spotifyPresenter.currentSong;
+        if (spotifyPresenter.getActiveSource() !== 'spotify' || !song.songID || song.songID === '0') {
+            alert('Play the Spotify song that should receive this LRC first.');
+            return;
+        }
+        const popup = document.getElementById('lrc-import-popup');
+        const songLabel = document.getElementById('lrc-import-song');
+        const input = document.getElementById('lrc-import-file') as HTMLInputElement | null;
+        const text = document.getElementById('lrc-import-text') as HTMLTextAreaElement | null;
+        if (songLabel) songLabel.textContent = `Import for: ${song.title} — ${song.artist}`;
+        if (input) input.value = '';
+        if (text) text.value = '';
+        this.resetLrcImportConfirmation();
+        this.setLrcImportStatus('');
+        if (popup) popup.style.display = 'flex';
+    }
+
+    private closeLrcImport(): void {
+        const popup = document.getElementById('lrc-import-popup');
+        if (popup) popup.style.display = 'none';
+        this.resetLrcImportConfirmation();
+    }
+
+    private resetLrcImportConfirmation(): void {
+        this.lrcImportMetadataConfirmed = false;
+        const button = document.getElementById('confirm-lrc-import');
+        const warning = document.getElementById('lrc-import-warning');
+        if (button) button.textContent = 'Import';
+        if (warning) {
+            warning.textContent = '';
+            warning.style.display = 'none';
+        }
+    }
+
+    private setLrcImportStatus(message: string): void {
+        const status = document.getElementById('lrc-import-status');
+        if (status) status.textContent = message;
+    }
+
+    private async importLrc(): Promise<void> {
+        const song = spotifyPresenter.currentSong;
+        if (spotifyPresenter.getActiveSource() !== 'spotify' || !song.songID || song.songID === '0') {
+            this.setLrcImportStatus('Play the Spotify song that should receive this LRC first.');
+            return;
+        }
+        const textArea = document.getElementById('lrc-import-text') as HTMLTextAreaElement | null;
+        try {
+            const imported = parseLrcImport(textArea?.value ?? '');
+            const warnings = getLrcMetadataWarnings(imported, song);
+            if (warnings.length > 0 && !this.lrcImportMetadataConfirmed) {
+                const warning = document.getElementById('lrc-import-warning');
+                const button = document.getElementById('confirm-lrc-import');
+                if (warning) {
+                    warning.textContent = `LRC metadata differs from Spotify:\n${warnings.map(item => `• ${item}`).join('\n')}`;
+                    warning.style.display = 'block';
+                }
+                if (button) button.textContent = 'Import anyway';
+                this.lrcImportMetadataConfirmed = true;
+                this.setLrcImportStatus('Review the differences, then tap Import anyway to continue.');
+                return;
+            }
+
+            const existing = await localLyricsStore.get(song.songID);
+            if (existing && !window.confirm(`Replace the existing ${existing.status} local lyrics for this song?`)) {
+                this.setLrcImportStatus('Import cancelled; existing local lyrics were kept.');
+                return;
+            }
+
+            const record = createRecordFromLrcImport(song, imported);
+            await localLyricsStore.save(record);
+            await lyricsPresenter.refreshLyrics(song);
+            await lyricsSyncPresenter.prepareForSong(
+                song,
+                record.plainLyrics,
+                lyricsPresenter.hasRemoteSyncedLyrics(),
+                true,
+            );
+            this.closeLrcImport();
+
+            if (record.status === 'draft') {
+                if (lyricsPresenter.hasRemoteSyncedLyrics()) {
+                    alert('Plain lyrics were saved as a draft. Spotify already has synced lyrics, so its remote version remains active.');
+                } else if (await lyricsSyncPresenter.startSync()) {
+                    requestImmediateViewRefresh(song);
+                }
+            } else {
+                requestImmediateViewRefresh(song);
+            }
+            this.renderLyricsSyncControls();
+            await this.renderLocalLyricsLibrary();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not import these lyrics';
+            this.setLrcImportStatus(message);
+        }
     }
 
     private downloadLrc(record: LocalLyricsRecord) {
