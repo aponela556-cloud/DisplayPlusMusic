@@ -121,7 +121,10 @@
                 <h2>Local Lyrics Library</h2>
                 <p>Drafts and completed LRC files stored on this phone.</p>
             </div>
-            <button class="small-button sync-main-action" id="refresh-local-lyrics">Refresh</button>
+            <div class="library-header-actions">
+                <button class="small-button accent" id="open-lrc-import">Import LRC</button>
+                <button class="small-button" id="refresh-local-lyrics">Refresh</button>
+            </div>
         </div>
         <div id="local-lyrics-list" class="local-lyrics-list">
             <p class="local-lyrics-empty">No local lyrics yet.</p>
@@ -134,6 +137,21 @@
             <div class="sync-active-controls">
                 <button class="small-button accent" id="copy-lrc">Copy LRC</button>
                 <button class="small-button" id="close-lrc-export">Close</button>
+            </div>
+        </div>
+    </div>
+    <div id="lrc-import-popup" class="lrc-export-popup" style="display: none;">
+        <div class="lrc-export-card">
+            <h2>Import LRC</h2>
+            <p id="lrc-import-song" class="lrc-import-description"></p>
+            <p class="lrc-import-description">Select an .lrc/text file or paste LRC/plain lyrics below.</p>
+            <input id="lrc-import-file" type="file" accept=".lrc,.txt,text/plain" />
+            <textarea id="lrc-import-text" placeholder="Paste LRC or plain lyrics"></textarea>
+            <div id="lrc-import-warning" class="lrc-import-warning" style="display: none;"></div>
+            <p id="lrc-import-status" class="lrc-import-description" aria-live="polite"></p>
+            <div class="sync-active-controls">
+                <button class="small-button accent" id="confirm-lrc-import">Import</button>
+                <button class="small-button" id="cancel-lrc-import">Cancel</button>
             </div>
         </div>
     </div>
@@ -698,6 +716,18 @@
             margin-top: 18px;
         }
 
+        .library-header-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .library-header-actions .small-button {
+            min-width: 160px;
+            height: 54px;
+            font-size: 20px;
+        }
+
         .local-lyrics-card {
             padding: 16px;
             border-radius: 8px;
@@ -749,6 +779,34 @@
             padding: 16px;
             font-size: 22px;
             white-space: pre;
+        }
+
+        #lrc-import-text {
+            width: 100%;
+            min-height: 34vh;
+            box-sizing: border-box;
+            padding: 16px;
+            font-size: 22px;
+            white-space: pre;
+        }
+
+        #lrc-import-file {
+            font-size: 20px;
+        }
+
+        .lrc-import-description {
+            margin: 0;
+            font-size: 20px;
+            opacity: 0.78;
+        }
+
+        .lrc-import-warning {
+            padding: 14px;
+            border-radius: 8px;
+            background: #fff5bf;
+            color: #5e4d00;
+            font-size: 19px;
+            white-space: pre-line;
         }
 
         #lyrics-container {
