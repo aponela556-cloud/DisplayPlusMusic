@@ -4,6 +4,7 @@ import localLyricsStore, {
     buildLrc,
     clampTimestampMs,
     createLocalLyricsRecord,
+    createSavedLyricsRecord,
     finalizeLocalLyricsRecord,
     formatLrcTimestamp,
     getLyricsEditorContext,
@@ -11,6 +12,7 @@ import localLyricsStore, {
     parsePlainLyrics,
     queryLocalLyricsSummaries,
     resolveLyricsPriority,
+    savedLyricsStore,
     undoLocalLyricsLine,
 } from './localLyricsModel';
 import { storage } from '../utils/storage';
@@ -199,6 +201,43 @@ describe('storage recovery', () => {
             items: [{ spotifyTrackId: 'track-2', status: 'complete', totalLines: 1 }],
         });
         expect(values.get('local_lyrics_index_v2')).toContain('track-2');
+    });
+});
+
+describe('saved remote lyrics', () => {
+    it('stores remote plain lyrics independently from the user timing record and de-duplicates it', async () => {
+        const values = new Map<string, string>();
+        vi.spyOn(storage, 'getItem').mockImplementation(async key => values.get(key) ?? null);
+        vi.spyOn(storage, 'setItem').mockImplementation(async (key, value) => { values.set(key, value); });
+        vi.spyOn(storage, 'removeItem').mockImplementation(async key => { values.delete(key); });
+
+        const song = makeSong();
+        const saved = createSavedLyricsRecord(song, {
+            plainLyrics: 'Remote first line\nRemote second line',
+            syncedLyrics: null,
+            source: 'web',
+        });
+        expect(saved).toMatchObject({ format: 'plain', spotifyTrackId: 'track-1' });
+        expect(await savedLyricsStore.save(saved!)).toBe(true);
+        expect(await savedLyricsStore.save(saved!)).toBe(false);
+        await localLyricsStore.save(createLocalLyricsRecord(song, 'My first line'));
+
+        await expect(savedLyricsStore.list()).resolves.toMatchObject([
+            { id: saved!.id, format: 'plain', plainLyrics: 'Remote first line\nRemote second line' },
+        ]);
+        await expect(localLyricsStore.get(song.songID)).resolves.toMatchObject({
+            plainLyrics: 'My first line',
+            status: 'draft',
+        });
+    });
+
+    it('keeps a synced remote copy as LRC content', () => {
+        const saved = createSavedLyricsRecord(makeSong(), {
+            plainLyrics: 'Remote line',
+            syncedLyrics: '[00:01.00]Remote line',
+            source: 'web',
+        });
+        expect(saved).toMatchObject({ format: 'synced', syncedLyrics: '[00:01.00]Remote line' });
     });
 });
 

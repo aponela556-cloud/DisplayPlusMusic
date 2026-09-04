@@ -164,6 +164,21 @@ class LyricsPresenter {
     return this.remoteSyncedLyricsAvailable;
   }
 
+  /**
+   * Returns the currently matched remote lyrics only. Local timing records are
+   * deliberately excluded: saving must archive the provider result, never a
+   * copy of the user's own LRC.
+   */
+  getRemoteLyricsForSaving(): LyricsCandidate | null {
+    if (this.currentLyricsSource !== 'web') return null;
+    if (!this.plainLyrics && !this.syncedLyrics) return null;
+    return {
+      plainLyrics: this.plainLyrics || null,
+      syncedLyrics: this.syncedLyrics || null,
+      source: 'web',
+    };
+  }
+
   async refreshLyrics(song: Song): Promise<void> {
     this.currentSongID = '';
     await this.updateLyrics(song);

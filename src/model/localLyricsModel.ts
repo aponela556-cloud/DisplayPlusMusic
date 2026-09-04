@@ -55,13 +55,41 @@ export interface LyricsEditorContext {
     allMarked: boolean;
 }
 
+export type SavedLyricsFormat = 'synced' | 'plain';
+
+/**
+ * An immutable copy of lyrics downloaded from the remote lyrics provider.
+ * These records are intentionally kept separate from the user's timing record
+ * for the same Spotify track, so saving a source never changes playback.
+ */
+export interface SavedLyricsRecord {
+    schemaVersion: 1;
+    id: string;
+    spotifyTrackId: string;
+    title: string;
+    artist: string;
+    album: string;
+    durationMs: number;
+    format: SavedLyricsFormat;
+    plainLyrics: string;
+    syncedLyrics: string;
+    source: 'web';
+    savedAt: string;
+}
+
 const INDEX_STORAGE_KEY = 'local_lyrics_index_v1';
 const SUMMARY_INDEX_STORAGE_KEY = 'local_lyrics_index_v2';
 const RECORD_STORAGE_PREFIX = 'local_lyrics_v1:';
+const SAVED_INDEX_STORAGE_KEY = 'saved_lyrics_index_v1';
+const SAVED_RECORD_STORAGE_PREFIX = 'saved_lyrics_v1:';
 const SECTION_LABEL_PATTERN = /^\s*[\[【(（]\s*(?:verse|pre[- ]?chorus|chorus|bridge|intro|outro|hook|refrain|instrumental|interlude|主歌|副歌|導歌|导歌|橋段|桥段|前奏|尾奏|間奏|间奏)(?:\s*\d+)?\s*[\]】)）]\s*$/iu;
 
 function recordKey(trackId: string): string {
     return `${RECORD_STORAGE_PREFIX}${trackId}`;
+}
+
+function savedRecordKey(id: string): string {
+    return `${SAVED_RECORD_STORAGE_PREFIX}${id}`;
 }
 
 function safeMetadata(value: string): string {
@@ -97,6 +125,23 @@ function isLocalLyricsSummary(value: unknown): value is LocalLyricsSummary {
         typeof summary.markedLines === 'number' &&
         typeof summary.totalLines === 'number' &&
         typeof summary.updatedAt === 'string';
+}
+
+function isSavedLyricsRecord(value: unknown): value is SavedLyricsRecord {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Partial<SavedLyricsRecord>;
+    return record.schemaVersion === 1 &&
+        typeof record.id === 'string' &&
+        typeof record.spotifyTrackId === 'string' &&
+        typeof record.title === 'string' &&
+        typeof record.artist === 'string' &&
+        typeof record.album === 'string' &&
+        typeof record.durationMs === 'number' &&
+        (record.format === 'synced' || record.format === 'plain') &&
+        typeof record.plainLyrics === 'string' &&
+        typeof record.syncedLyrics === 'string' &&
+        record.source === 'web' &&
+        typeof record.savedAt === 'string';
 }
 
 export function toLocalLyricsSummary(record: LocalLyricsRecord): LocalLyricsSummary {
@@ -200,6 +245,38 @@ export function createLocalLyricsRecord(song: Song, plainLyrics: string): LocalL
         currentLineIndex: 0,
         status: 'draft',
         updatedAt: new Date().toISOString(),
+    };
+}
+
+function contentFingerprint(value: string): string {
+    // Stable, non-cryptographic fingerprint used only to avoid duplicate local saves.
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
+export function createSavedLyricsRecord(song: Song, lyrics: LyricsCandidate): SavedLyricsRecord | null {
+    const syncedLyrics = lyrics.syncedLyrics?.trim() ?? '';
+    const plainLyrics = lyrics.plainLyrics?.trim() ?? '';
+    const format: SavedLyricsFormat | null = syncedLyrics ? 'synced' : plainLyrics ? 'plain' : null;
+    if (!format || song.songID === '0') return null;
+    const content = syncedLyrics || plainLyrics;
+    return {
+        schemaVersion: 1,
+        id: `${song.songID}:${format}:${contentFingerprint(content)}`,
+        spotifyTrackId: song.songID,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        durationMs: Math.max(0, Math.round(song.durationSeconds * 1000)),
+        format,
+        plainLyrics,
+        syncedLyrics,
+        source: 'web',
+        savedAt: new Date().toISOString(),
     };
 }
 
@@ -374,3 +451,53 @@ class LocalLyricsStore {
 
 const localLyricsStore = new LocalLyricsStore();
 export default localLyricsStore;
+
+class SavedLyricsStore {
+    private async readIndex(): Promise<string[]> {
+        const raw = await storage.getItem(SAVED_INDEX_STORAGE_KEY);
+        if (!raw) return [];
+        try {
+            const parsed: unknown = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async get(id: string): Promise<SavedLyricsRecord | null> {
+        if (!id) return null;
+        const raw = await storage.getItem(savedRecordKey(id));
+        if (!raw) return null;
+        try {
+            const parsed: unknown = JSON.parse(raw);
+            return isSavedLyricsRecord(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    async list(): Promise<SavedLyricsRecord[]> {
+        const ids = await this.readIndex();
+        const records = await Promise.all(ids.map(id => this.get(id)));
+        return records
+            .filter((record): record is SavedLyricsRecord => record !== null)
+            .sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+    }
+
+    /** Returns true only when a new remote copy was saved. */
+    async save(record: SavedLyricsRecord): Promise<boolean> {
+        if (await this.get(record.id)) return false;
+        await storage.setItem(savedRecordKey(record.id), JSON.stringify(record));
+        const ids = await this.readIndex();
+        await storage.setItem(SAVED_INDEX_STORAGE_KEY, JSON.stringify([record.id, ...ids.filter(id => id !== record.id)]));
+        return true;
+    }
+
+    async remove(id: string): Promise<void> {
+        await storage.removeItem(savedRecordKey(id));
+        const ids = await this.readIndex();
+        await storage.setItem(SAVED_INDEX_STORAGE_KEY, JSON.stringify(ids.filter(candidate => candidate !== id)));
+    }
+}
+
+export const savedLyricsStore = new SavedLyricsStore();
