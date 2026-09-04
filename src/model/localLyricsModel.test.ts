@@ -9,6 +9,7 @@ import localLyricsStore, {
     getLyricsEditorContext,
     markLocalLyricsLine,
     parsePlainLyrics,
+    queryLocalLyricsSummaries,
     resolveLyricsPriority,
     undoLocalLyricsLine,
 } from './localLyricsModel';
@@ -179,5 +180,34 @@ describe('storage recovery', () => {
         await localLyricsStore.remove('track-1');
         await expect(localLyricsStore.get('track-1')).resolves.toBeNull();
         await expect(localLyricsStore.list()).resolves.toEqual([]);
+    });
+
+    it('migrates the old ID index to summaries and pages filtered results', async () => {
+        const values = new Map<string, string>();
+        vi.spyOn(storage, 'getItem').mockImplementation(async key => values.get(key) ?? null);
+        vi.spyOn(storage, 'setItem').mockImplementation(async (key, value) => { values.set(key, value); });
+        vi.spyOn(storage, 'removeItem').mockImplementation(async key => { values.delete(key); });
+        const first = createLocalLyricsRecord(makeSong(), 'First');
+        first.updatedAt = '2026-01-01T00:00:00.000Z';
+        const second = { ...first, spotifyTrackId: 'track-2', title: 'Another Song', artist: 'Another Artist', status: 'complete' as const, syncedLyrics: '[00:01.00]First', updatedAt: '2026-01-02T00:00:00.000Z' };
+        values.set('local_lyrics_index_v1', JSON.stringify(['track-1', 'track-2']));
+        values.set('local_lyrics_v1:track-1', JSON.stringify(first));
+        values.set('local_lyrics_v1:track-2', JSON.stringify(second));
+
+        await expect(localLyricsStore.getPage('another', 'complete', 'title', 0, 20)).resolves.toMatchObject({
+            totalItems: 1,
+            items: [{ spotifyTrackId: 'track-2', status: 'complete', totalLines: 1 }],
+        });
+        expect(values.get('local_lyrics_index_v2')).toContain('track-2');
+    });
+});
+
+describe('library summary queries', () => {
+    it('filters and sorts metadata without reading lyric text', () => {
+        const results = queryLocalLyricsSummaries([
+            { spotifyTrackId: 'a', title: 'Zebra', artist: 'Artist', album: '', status: 'draft', markedLines: 1, totalLines: 2, updatedAt: '2026-01-01T00:00:00.000Z' },
+            { spotifyTrackId: 'b', title: 'Álbum Song', artist: 'Other', album: '', status: 'complete', markedLines: 2, totalLines: 2, updatedAt: '2026-01-02T00:00:00.000Z' },
+        ], 'album', 'complete', 'title');
+        expect(results.map(item => item.spotifyTrackId)).toEqual(['b']);
     });
 });

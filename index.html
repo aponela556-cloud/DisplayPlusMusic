@@ -119,17 +119,47 @@
         <div class="sync-panel-header">
             <div>
                 <h2>Local Lyrics Library</h2>
-                <p>Drafts and completed LRC files stored on this phone.</p>
+                <p id="local-lyrics-summary">Loading local lyrics…</p>
             </div>
             <div class="library-header-actions">
                 <button class="small-button accent" id="open-lrc-import">Import LRC</button>
-                <button class="small-button" id="refresh-local-lyrics">Refresh</button>
+                <button class="small-button" id="open-local-lyrics-library">Open Library</button>
             </div>
         </div>
-        <div id="local-lyrics-list" class="local-lyrics-list">
-            <p class="local-lyrics-empty">No local lyrics yet.</p>
-        </div>
     </section>
+    <div id="local-lyrics-library-popup" class="lrc-export-popup library-popup" style="display: none;">
+        <div class="lrc-export-card library-manager-card">
+            <div class="library-manager-title"><h2>Local Lyrics Library</h2><button class="small-button" id="close-local-lyrics-library">Close</button></div>
+            <input id="local-lyrics-search" type="search" placeholder="Search title, artist, or album" />
+            <div class="library-filters">
+                <button class="small-button accent" data-library-filter="all">All</button>
+                <button class="small-button" data-library-filter="draft">Drafts</button>
+                <button class="small-button" data-library-filter="complete">Complete</button>
+                <select id="local-lyrics-sort"><option value="recent">Recently updated</option><option value="title">Title</option></select>
+            </div>
+            <p id="local-lyrics-page-summary" class="lrc-import-description" aria-live="polite"></p>
+            <div id="local-lyrics-list" class="local-lyrics-list"></div>
+            <div class="library-pagination">
+                <button class="small-button" id="local-lyrics-page-previous">Previous</button>
+                <button class="small-button" id="local-lyrics-page-next">Next</button>
+            </div>
+        </div>
+    </div>
+    <div id="local-lyrics-detail-popup" class="lrc-export-popup" style="display: none;">
+        <div class="lrc-export-card">
+            <h2 id="local-lyrics-detail-title">Local lyrics</h2>
+            <p id="local-lyrics-detail-meta" class="lrc-import-description"></p>
+            <div class="sync-active-controls">
+                <button class="small-button accent" id="local-lyrics-detail-sync">Continue LRC</button>
+                <button class="small-button" id="local-lyrics-detail-copy">Copy</button>
+            </div>
+            <div class="sync-active-controls">
+                <button class="small-button" id="local-lyrics-detail-export">Export</button>
+                <button class="small-button danger" id="local-lyrics-detail-delete">Delete</button>
+            </div>
+            <button class="small-button" id="close-local-lyrics-detail">Close</button>
+        </div>
+    </div>
     <div id="lrc-export-popup" class="lrc-export-popup" style="display: none;">
         <div class="lrc-export-card">
             <h2 id="lrc-export-title">Export LRC</h2>
@@ -715,6 +745,37 @@
             gap: 12px;
             margin-top: 18px;
         }
+
+        .library-popup { overflow-y: auto; }
+
+        .library-manager-card { margin: auto; }
+
+        .library-manager-title,
+        .library-filters,
+        .library-pagination {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .library-manager-title { justify-content: space-between; }
+
+        .library-filters { flex-wrap: wrap; }
+
+        #local-lyrics-search,
+        #local-lyrics-sort {
+            width: 100%;
+            min-height: 58px;
+            box-sizing: border-box;
+            padding: 12px;
+            font-size: 22px;
+        }
+
+        #local-lyrics-sort { width: auto; flex: 1; }
+
+        .library-pagination { justify-content: space-between; }
+
+        .local-lyrics-card { width: 100%; text-align: left; cursor: pointer; }
 
         .library-header-actions {
             display: flex;

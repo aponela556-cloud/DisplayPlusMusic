@@ -5,7 +5,7 @@ import spotifyAuthModel from '../model/spotifyAuthModel';
 import Song from '../model/songModel';
 import { formatTime } from '../Scripts/formatTime';
 import playbackOffsetModel, { OFFSET_STEP_MS } from '../model/playbackOffsetModel';
-import localLyricsStore, { LocalLyricsRecord, parsePlainLyrics } from '../model/localLyricsModel';
+import localLyricsStore, { LocalLyricsFilter, LocalLyricsRecord, LocalLyricsSort, parsePlainLyrics } from '../model/localLyricsModel';
 import {
     createRecordFromLrcImport,
     getLrcMetadataWarnings,
@@ -34,6 +34,10 @@ class ViewPresenter {
     private lastBlobUrl?: string;
     private lastLyricsSyncEditing = false;
     private lrcImportMetadataConfirmed = false;
+    private libraryFilter: LocalLyricsFilter = 'all';
+    private librarySort: LocalLyricsSort = 'recent';
+    private libraryPage = 0;
+    private libraryTrackId?: string;
 
     constructor() { }
 
@@ -114,7 +118,28 @@ class ViewPresenter {
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
         });
-        document.getElementById('refresh-local-lyrics')?.addEventListener('click', () => {
+        document.getElementById('open-local-lyrics-library')?.addEventListener('click', () => this.openLocalLyricsLibrary());
+        document.getElementById('close-local-lyrics-library')?.addEventListener('click', () => this.closeLocalLyricsLibrary());
+        document.getElementById('local-lyrics-search')?.addEventListener('input', () => {
+            this.libraryPage = 0;
+            this.renderLocalLyricsLibrary();
+        });
+        document.querySelectorAll<HTMLButtonElement>('[data-library-filter]').forEach(button => button.addEventListener('click', () => {
+            this.libraryFilter = (button.dataset.libraryFilter || 'all') as LocalLyricsFilter;
+            this.libraryPage = 0;
+            this.renderLocalLyricsLibrary();
+        }));
+        document.getElementById('local-lyrics-sort')?.addEventListener('change', event => {
+            this.librarySort = (event.target as HTMLSelectElement).value as LocalLyricsSort;
+            this.libraryPage = 0;
+            this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('local-lyrics-page-previous')?.addEventListener('click', () => {
+            this.libraryPage = Math.max(0, this.libraryPage - 1);
+            this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('local-lyrics-page-next')?.addEventListener('click', () => {
+            this.libraryPage += 1;
             this.renderLocalLyricsLibrary();
         });
         document.getElementById('open-lrc-import')?.addEventListener('click', () => {
@@ -156,38 +181,13 @@ class ViewPresenter {
             const action = button?.dataset.lyricsAction;
             const trackId = button?.dataset.trackId;
             if (!action || !trackId) return;
-            const record = await localLyricsStore.get(trackId);
-            if (!record) return;
-
-            if (action === 'sync') {
-                if (spotifyPresenter.currentSong.songID !== trackId) {
-                    alert('Play this song in Spotify before resuming its sync session.');
-                    return;
-                }
-                if (await lyricsSyncPresenter.startSync(record.status === 'complete')) {
-                    requestImmediateViewRefresh(spotifyPresenter.currentSong);
-                }
-            } else if (action === 'export') {
-                this.downloadLrc(record);
-            } else if (action === 'copy') {
-                this.showLrcExport(record);
-                await this.copyText(record.syncedLyrics);
-            } else if (action === 'delete') {
-                if (!window.confirm(`Delete local lyrics for ${record.title}?`)) return;
-                await localLyricsStore.remove(trackId);
-                if (spotifyPresenter.currentSong.songID === trackId) {
-                    await lyricsPresenter.refreshLyrics(spotifyPresenter.currentSong);
-                    await lyricsSyncPresenter.prepareForSong(
-                        spotifyPresenter.currentSong,
-                        lyricsPresenter.getPlainLyrics(),
-                        lyricsPresenter.hasRemoteSyncedLyrics(),
-                        true,
-                    );
-                }
-            }
-            this.renderLyricsSyncControls();
-            await this.renderLocalLyricsLibrary();
+            await this.handleLocalLyricsAction(action, trackId);
         });
+        document.getElementById('local-lyrics-detail-sync')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('sync', this.libraryTrackId));
+        document.getElementById('local-lyrics-detail-copy')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('copy', this.libraryTrackId));
+        document.getElementById('local-lyrics-detail-export')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('export', this.libraryTrackId));
+        document.getElementById('local-lyrics-detail-delete')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('delete', this.libraryTrackId));
+        document.getElementById('close-local-lyrics-detail')?.addEventListener('click', () => this.closeLocalLyricsDetail());
 
         playbackOffsetModel.init().then(() => this.renderPlaybackOffset());
 
@@ -476,28 +476,105 @@ class ViewPresenter {
     }
 
     async renderLocalLyricsLibrary() {
+        const summaries = await localLyricsStore.listSummaries();
+        const summary = document.getElementById('local-lyrics-summary');
+        const draftCount = summaries.filter(record => record.status === 'draft').length;
+        const completeCount = summaries.length - draftCount;
+        if (summary) summary.textContent = `${summaries.length} local lyrics · ${draftCount} drafts · ${completeCount} complete`;
+
+        const popup = document.getElementById('local-lyrics-library-popup');
+        if (!popup || popup.style.display === 'none') return;
         const list = document.getElementById('local-lyrics-list');
+        const search = (document.getElementById('local-lyrics-search') as HTMLInputElement | null)?.value ?? '';
+        const page = await localLyricsStore.getPage(search, this.libraryFilter, this.librarySort, this.libraryPage);
+        this.libraryPage = page.page;
+        const pageSummary = document.getElementById('local-lyrics-page-summary');
+        const previous = document.getElementById('local-lyrics-page-previous') as HTMLButtonElement | null;
+        const next = document.getElementById('local-lyrics-page-next') as HTMLButtonElement | null;
+        document.querySelectorAll<HTMLButtonElement>('[data-library-filter]').forEach(button => {
+            const value = button.dataset.libraryFilter as LocalLyricsFilter;
+            button.classList.toggle('accent', value === this.libraryFilter);
+        });
+        if (pageSummary) pageSummary.textContent = page.totalItems === 0 ? 'No local lyrics found.' : `${page.totalItems} results · Page ${page.page + 1} of ${page.totalPages}`;
+        if (previous) previous.disabled = page.page === 0;
+        if (next) next.disabled = page.page >= page.totalPages - 1;
         if (!list) return;
-        const records = await localLyricsStore.list();
-        if (records.length === 0) {
-            list.innerHTML = '<p class="local-lyrics-empty">No local lyrics yet.</p>';
-            return;
-        }
-        list.innerHTML = records.map(record => {
-            const completed = record.status === 'complete';
-            const progress = `${record.lineTimestampsMs.length}/${parsePlainLyrics(record.plainLyrics).length} lines`;
+        list.innerHTML = page.items.map(record => {
+            const progress = `${record.markedLines}/${record.totalLines} lines`;
             return `
-                <article class="local-lyrics-card">
+                <button class="local-lyrics-card" data-lyrics-action="details" data-track-id="${escapeHtml(record.spotifyTrackId)}">
                     <p class="local-lyrics-card-title">${escapeHtml(record.title)}</p>
                     <p class="local-lyrics-card-meta">${escapeHtml(record.artist)} · ${record.status} · ${progress}</p>
-                    <div class="local-lyrics-actions">
-                        <button class="small-button" data-lyrics-action="sync" data-track-id="${escapeHtml(record.spotifyTrackId)}">${completed ? 'Re-time LRC' : 'Continue LRC'}</button>
-                        ${completed ? `<button class="small-button accent" data-lyrics-action="export" data-track-id="${escapeHtml(record.spotifyTrackId)}">Export</button>` : ''}
-                        ${completed ? `<button class="small-button" data-lyrics-action="copy" data-track-id="${escapeHtml(record.spotifyTrackId)}">Copy</button>` : ''}
-                        <button class="small-button danger" data-lyrics-action="delete" data-track-id="${escapeHtml(record.spotifyTrackId)}">Delete</button>
-                    </div>
-                </article>`;
+                    <p class="local-lyrics-card-meta">Updated ${new Date(record.updatedAt).toLocaleDateString()}</p>
+                </button>`;
         }).join('');
+    }
+
+    private openLocalLyricsLibrary(): void {
+        const popup = document.getElementById('local-lyrics-library-popup');
+        if (popup) popup.style.display = 'flex';
+        this.renderLocalLyricsLibrary();
+    }
+
+    private closeLocalLyricsLibrary(): void {
+        const popup = document.getElementById('local-lyrics-library-popup');
+        if (popup) popup.style.display = 'none';
+    }
+
+    private async openLocalLyricsDetail(trackId: string): Promise<void> {
+        const record = await localLyricsStore.get(trackId);
+        if (!record) return;
+        this.libraryTrackId = trackId;
+        const popup = document.getElementById('local-lyrics-detail-popup');
+        const title = document.getElementById('local-lyrics-detail-title');
+        const meta = document.getElementById('local-lyrics-detail-meta');
+        const sync = document.getElementById('local-lyrics-detail-sync');
+        const copy = document.getElementById('local-lyrics-detail-copy') as HTMLButtonElement | null;
+        const exportButton = document.getElementById('local-lyrics-detail-export') as HTMLButtonElement | null;
+        if (title) title.textContent = record.title;
+        if (meta) meta.textContent = `${record.artist} · ${record.album}\n${record.status} · ${record.lineTimestampsMs.length}/${parsePlainLyrics(record.plainLyrics).length} lines`;
+        if (sync) sync.textContent = record.status === 'complete' ? 'Re-time LRC' : 'Continue LRC';
+        if (copy) copy.style.display = record.status === 'complete' ? 'block' : 'none';
+        if (exportButton) exportButton.style.display = record.status === 'complete' ? 'block' : 'none';
+        if (popup) popup.style.display = 'flex';
+    }
+
+    private closeLocalLyricsDetail(): void {
+        const popup = document.getElementById('local-lyrics-detail-popup');
+        if (popup) popup.style.display = 'none';
+        this.libraryTrackId = undefined;
+    }
+
+    private async handleLocalLyricsAction(action: string, trackId: string): Promise<void> {
+        if (action === 'details') {
+            await this.openLocalLyricsDetail(trackId);
+            return;
+        }
+        const record = await localLyricsStore.get(trackId);
+        if (!record) return;
+        if (action === 'sync') {
+            if (spotifyPresenter.currentSong.songID !== trackId) {
+                alert('Play this song in Spotify before resuming its sync session.');
+                return;
+            }
+            if (await lyricsSyncPresenter.startSync(record.status === 'complete')) requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            this.closeLocalLyricsDetail();
+        } else if (action === 'export') {
+            this.downloadLrc(record);
+        } else if (action === 'copy') {
+            this.showLrcExport(record);
+            await this.copyText(record.syncedLyrics);
+        } else if (action === 'delete') {
+            if (!window.confirm(`Delete local lyrics for ${record.title}?`)) return;
+            await localLyricsStore.remove(trackId);
+            this.closeLocalLyricsDetail();
+            if (spotifyPresenter.currentSong.songID === trackId) {
+                await lyricsPresenter.refreshLyrics(spotifyPresenter.currentSong);
+                await lyricsSyncPresenter.prepareForSong(spotifyPresenter.currentSong, lyricsPresenter.getPlainLyrics(), lyricsPresenter.hasRemoteSyncedLyrics(), true);
+            }
+        }
+        this.renderLyricsSyncControls();
+        await this.renderLocalLyricsLibrary();
     }
 
     private showLrcExport(record: LocalLyricsRecord) {
