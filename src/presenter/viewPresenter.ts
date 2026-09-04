@@ -591,7 +591,7 @@ class ViewPresenter {
 
             if (record.status === 'draft') {
                 if (lyricsPresenter.hasRemoteSyncedLyrics()) {
-                    alert('Plain lyrics were saved as a draft. Spotify already has synced lyrics, so its remote version remains active.');
+                    alert('Plain lyrics were saved as a draft. Remote synced lyrics are already available, so the remote version remains active.');
                 } else if (await lyricsSyncPresenter.startSync()) {
                     requestImmediateViewRefresh(song);
                 }
