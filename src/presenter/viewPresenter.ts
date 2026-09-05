@@ -746,11 +746,19 @@ class ViewPresenter {
 
     private renderSaveRemoteLyricsControl(): void {
         const button = document.getElementById('save-current-lyrics') as HTMLButtonElement | null;
-        if (!button) return;
+        const panel = document.getElementById('save-remote-lyrics-panel');
+        const status = document.getElementById('save-remote-lyrics-status');
+        if (!button || !panel) return;
         const lyrics = lyricsPresenter.getRemoteLyricsForSaving();
+        panel.style.display = lyrics ? 'block' : 'none';
         button.style.display = lyrics ? 'flex' : 'none';
         button.textContent = lyrics?.syncedLyrics ? 'Save Lyrics' : 'Save Plain Lyrics';
         button.disabled = !lyrics;
+        if (status) {
+            status.textContent = lyrics?.syncedLyrics
+                ? 'Save this synced web lyrics version to Local Lyrics Library.'
+                : 'Save these plain web lyrics to Local Lyrics Library.';
+        }
     }
 
     private async saveCurrentRemoteLyrics(): Promise<void> {
