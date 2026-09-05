@@ -93,8 +93,16 @@
         </p>
         <p id='current-lyric-line'></p>
         <p id='next-lyric-line'></p>
-        <button class="small-button" id="save-current-lyrics" style="display: none;">Save Lyrics</button>
     </span>
+    <section id="save-remote-lyrics-panel" class="sync-panel save-remote-lyrics-panel" style="display: none;">
+        <div class="sync-panel-header">
+            <div>
+                <h2>Save Lyrics</h2>
+                <p id="save-remote-lyrics-status">Save this web lyrics version to Local Lyrics Library.</p>
+            </div>
+            <button class="small-button" id="save-current-lyrics" style="display: none;">Save Lyrics</button>
+        </div>
+    </section>
     <section id="lyrics-sync-panel" class="sync-panel">
         <div class="sync-panel-header">
             <div>
@@ -676,6 +684,14 @@
             min-width: 180px;
         }
 
+        .save-remote-lyrics-panel #save-current-lyrics {
+            width: auto;
+            min-width: 220px;
+            height: 64px;
+            padding: 8px 16px;
+            font-size: 24px;
+        }
+
         .sync-active-controls,
         .local-lyrics-actions {
             display: flex;
@@ -739,6 +755,7 @@
         body.lyrics-sync-editing #player-message-panel,
         body.lyrics-sync-editing #playback-offset,
         body.lyrics-sync-editing #lyrics-container,
+        body.lyrics-sync-editing #save-remote-lyrics-panel,
         body.lyrics-sync-editing #local-lyrics-library,
         body.lyrics-sync-editing #small-button-container-1,
         body.lyrics-sync-editing #small-button-container-2 {
