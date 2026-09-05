@@ -154,11 +154,63 @@ App 切換至背景時輪詢不會暫停，持續消耗配額。
 
 ---
 
+## Spotify 官方限流規則
+
+以下取自官方文件，區分「官方明載」與「社群回報」。
+
+### 官方明載
+
+**計算方式**（[Rate Limits](https://developer.spotify.com/documentation/web-api/concepts/rate-limits)）
+
+> "Spotify's API rate limit is calculated based on the number of calls that your
+> app makes to Spotify in a rolling 30 second window."
+
+採**滾動 30 秒視窗**，非固定週期重置。官方**未公布**具體請求數上限。
+
+**超限回應**
+
+> "The header of the 429 response will normally include a `Retry-After` header
+> with a value in seconds."
+
+恢復方式為等待 `Retry-After` 指定的秒數。
+
+**配額模式**（[Quota Modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)）
+
+| | Development Mode | Extended Quota Mode |
+|---|---|---|
+| 速率上限 | 較低（新 app 預設） | "much higher than apps in development mode" |
+| 使用者數 | 最多 **5 位**已授權使用者 | 無限制 |
+| 前提 | App 擁有者須為 **Premium 帳號** | — |
+| 申請資格 | — | 2025-05-15 起**僅接受組織申請，需 250k+ MAU** |
+
+⚠️ **Extended Quota 對個人專案實質上已不可申請。**
+這代表本專案只能維持在 Development Mode，**配額無法藉由申請提高**，
+唯一可行的方向是降低請求量。
+
+### 社群回報（非官方）
+
+`Retry-After` 的實際值遠比「30 秒視窗」直覺所暗示的長：
+
+- 多筆回報落在 **6 至 24 小時**
+- 有案例約 **21 小時**
+- `spotipy` issue #766 中出現 **3600 秒（1 小時）**
+
+**這與本次觀察一致**：09-04 傍晚仍正常，密集測試後觸發限流，
+停用約 10 小時後重啟仍為 429。
+
+**重要澄清**：30 秒滾動視窗是**判定是否超限**的依據，
+**不是懲罰時長**。實際封鎖期由 `Retry-After` 決定，可能長達數小時至一日。
+因此「等一下再試」並非可靠的恢復策略。
+
+---
+
 ## 補充：測試環境注意事項
 
 - 限流綁定 **Client ID**，非綁裝置。手機 App、模擬器、瀏覽器分頁若同時開啟，
   請求量會累加。
-- 刪除並重建 Spotify Dashboard 上的 app 可重置配額，但**新建 app 一律從
-  Development Mode 開始**；若原 app 已具 Extended Quota Mode 將會失去，
-  且需重新註冊 redirect URI 與重新授權所有裝置。
-- 輪詢頻率未修正前，重置配額後仍會在數分鐘內再次觸發。
+- 本專案目前無法讀取 `Retry-After`（SDK 未暴露，見問題 #2），
+  因此無從得知尚需等待多久。
+- 刪除並重建 Dashboard 上的 app 可取得新的 Client ID 與全新配額，
+  代價是需重新註冊 redirect URI、重新輸入憑證並重新授權所有裝置。
+  由於 Extended Quota 已不可申請，此舉不會造成配額等級損失。
+- **輪詢頻率未修正前，重置配額後仍會在數分鐘內再次觸發。**
