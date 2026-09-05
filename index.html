@@ -72,6 +72,9 @@
     <section id="player-message-panel" class="player-message-panel" aria-live="polite">
         <p class="player-message-title">Player messages</p>
         <p id="player-message">Ready</p>
+        <div id="player-message-actions" class="player-message-actions" style="display: none;">
+            <button class="small-button accent" id="retry-spotify" type="button">Retry Spotify</button>
+        </div>
     </section>
     <span class="container" id="playback-offset" >
         <button class="small-button" id="offset-decrease">
@@ -541,6 +544,11 @@
         #player-message {
             margin: 0;
             overflow-wrap: anywhere;
+        }
+
+        .player-message-actions {
+            margin-top: 10px;
+            justify-content: flex-end;
         }
 
         .navidrome-client-picker {
