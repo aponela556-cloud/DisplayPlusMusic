@@ -20,6 +20,11 @@ export async function eventHandler() {
             return;
         }
 
+        if (spotifyPresenter.isSpotifyRateLimited()) {
+            showPlayerMessage(spotifyPresenter.getSpotifyRateLimitMessage());
+            return;
+        }
+
         if (normalizedEvent.listEvent && (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)) {
             if (spotifyPresenter.getActiveSource() === 'navidrome') return;
             const selectedIndex = normalizedEvent.listEvent.currentSelectItemIndex;

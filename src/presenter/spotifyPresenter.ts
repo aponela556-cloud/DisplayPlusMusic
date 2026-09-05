@@ -7,6 +7,7 @@ import type { MusicSource } from '../model/musicSource';
 import { createSyncDemoSong } from '../model/syncDemoModel';
 import playbackOffsetModel from '../model/playbackOffsetModel';
 import type { PlaybackNavigationResult, PlaybackResetResult } from '../model/spotifyModel';
+import spotifyRateLimitModel from '../model/spotifyRateLimitModel';
 
 class SpotifyPresenter {
     currentSong: Song = song_placeholder;
@@ -22,6 +23,7 @@ class SpotifyPresenter {
                 this.nextSong = await navidromeModel.fetchNextTrack();
                 return;
             }
+            if (spotifyRateLimitModel.isBlocked()) return;
 
             this.currentSong = await spotifyModel.fetchCurrentTrack();
             this.nextSong = await spotifyModel.fetchNextTrack();
@@ -32,6 +34,7 @@ class SpotifyPresenter {
 
     async fetchCurrentSong(): Promise<Song> {
         if (this.syncDemoMode) return this.currentSong;
+        if (this.activeSource === 'spotify' && spotifyRateLimitModel.isBlocked()) return this.currentSong;
         return this.activeSource === 'navidrome'
             ? navidromeModel.fetchCurrentTrack()
             : spotifyModel.fetchCurrentTrack();
@@ -47,6 +50,30 @@ class SpotifyPresenter {
 
     isPlaybackAvailable(): boolean {
         return this.syncDemoMode || (this.activeSource === 'spotify' && spotifyModel.isPlaybackAvailable());
+    }
+
+    isSpotifyRateLimited(): boolean {
+        return this.activeSource === 'spotify' && spotifyRateLimitModel.isBlocked();
+    }
+
+    getSpotifyRateLimitMessage(): string {
+        return spotifyRateLimitModel.getStatusMessage();
+    }
+
+    getSpotifyRateLimitState() {
+        return {
+            ...spotifyRateLimitModel.getState(),
+            canRetry: spotifyRateLimitModel.canRetry(),
+        };
+    }
+
+    async retrySpotifyAfterRateLimit(): Promise<boolean> {
+        if (this.activeSource !== 'spotify' || !spotifyRateLimitModel.beginManualRetry()) return false;
+        const song = await spotifyModel.fetchCurrentTrack();
+        if (spotifyRateLimitModel.isBlocked()) return false;
+        this.currentSong = song;
+        this.nextSong = undefined;
+        return true;
     }
 
     async initActiveSource(): Promise<void> {
@@ -78,6 +105,7 @@ class SpotifyPresenter {
     }
 
     song_pauseplay() {
+        if (this.isSpotifyRateLimited()) return;
         if (this.syncDemoMode) {
             this.currentSong.toggleisPlaying();
             return;
@@ -90,6 +118,9 @@ class SpotifyPresenter {
         this.currentSong?.isPlaying ? spotifyModel.song_Pause() : spotifyModel.song_Play();
     }
     async song_back(): Promise<PlaybackNavigationResult> {
+        if (this.isSpotifyRateLimited()) {
+            return { ok: false, changed: false, message: this.getSpotifyRateLimitMessage() };
+        }
         if (this.activeSource === 'navidrome') {
             await navidromeModel.song_Back();
             return { ok: false, changed: false, message: 'Previous track is unavailable for Navidrome' };
@@ -97,6 +128,7 @@ class SpotifyPresenter {
         return spotifyModel.song_Back();
     }
     async song_forward(): Promise<boolean> {
+        if (this.isSpotifyRateLimited()) return false;
         if (this.activeSource === 'navidrome') {
             await navidromeModel.song_Forward();
             return false;
@@ -114,6 +146,7 @@ class SpotifyPresenter {
     }
 
     async pausePlayback(): Promise<boolean> {
+        if (this.isSpotifyRateLimited()) return false;
         if (this.syncDemoMode) {
             this.currentSong.addisPlaying(false);
             return true;
@@ -123,6 +156,7 @@ class SpotifyPresenter {
     }
 
     async togglePlayback(): Promise<boolean> {
+        if (this.isSpotifyRateLimited()) return false;
         if (this.syncDemoMode) {
             this.currentSong.toggleisPlaying();
             return true;
@@ -133,6 +167,13 @@ class SpotifyPresenter {
     }
 
     async pauseAndSeekToBeginning(): Promise<PlaybackResetResult> {
+        if (this.isSpotifyRateLimited()) {
+            return {
+                ok: false,
+                stage: 'device',
+                message: this.getSpotifyRateLimitMessage(),
+            };
+        }
         if (this.syncDemoMode) {
             this.currentSong.addisPlaying(false);
             this.currentSong.addProgressSeconds(Math.max(0, playbackOffsetModel.getOffsetSeconds()));

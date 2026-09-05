@@ -145,6 +145,47 @@ class LyricsSyncPresenter {
         return true;
     }
 
+    /**
+     * Starts a new user timing record from an archived remote plain-lyrics copy.
+     * The archive remains immutable; only the normal per-track timing record is
+     * created or replaced when this session is saved.
+     */
+    async startSyncFromSavedPlainLyrics(plainLyrics: string): Promise<boolean> {
+        const song = spotifyPresenter.currentSong;
+        if (
+            this.editing ||
+            spotifyPresenter.getActiveSource() !== 'spotify' ||
+            this.remoteSyncedAvailable ||
+            song.songID === '0' ||
+            !plainLyrics.trim()
+        ) return false;
+
+        const parsedLines = parsePlainLyrics(plainLyrics);
+        if (parsedLines.length === 0) {
+            this.message = 'No usable lyric lines';
+            return false;
+        }
+
+        const existing = await localLyricsStore.get(song.songID);
+        this.preparedSongID = song.songID;
+        this.preparedPlainLyrics = plainLyrics;
+        this.localRecord = existing;
+        this.sessionSnapshot = cloneLocalLyricsRecord(existing);
+        this.workingRecord = createLocalLyricsRecord(song, plainLyrics);
+        this.lines = parsedLines;
+        this.editing = true;
+        this.lastMarkAt = 0;
+        this.playbackResetReady = false;
+        this.message = 'Paused at start - tap Play';
+
+        const resetResult = await spotifyPresenter.pauseAndSeekToBeginning();
+        this.playbackResetReady = resetResult.ok;
+        if (!resetResult.ok) this.message = resetResult.message;
+
+        await this.persistWorkingDraft();
+        return true;
+    }
+
     async togglePlayback(): Promise<boolean> {
         if (!this.editing || !this.isCurrentSongValid()) return false;
         if (!this.playbackResetReady) {

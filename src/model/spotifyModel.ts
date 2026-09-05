@@ -6,6 +6,7 @@ import { storage } from '../utils/storage';
 import spotifyAuthModel from './spotifyAuthModel';
 import playbackOffsetModel from './playbackOffsetModel';
 import { EvenHubSpotifyDeserializer } from './evenHubSpotifyDeserializer';
+import spotifyRateLimitModel from './spotifyRateLimitModel';
 
 const PLAYBACK_RESET_POSITION_MS = 0;
 const PLAYBACK_RESET_CONFIRMATION_ATTEMPTS = 12;
@@ -21,6 +22,7 @@ function clampProgress(seconds: number, durationSeconds: number): number {
 let spotifysdk!: SpotifyApi;
 
 export async function initSpotify(): Promise<void> {
+    await spotifyRateLimitModel.init();
     const clientId = await storage.getItem('spotify_client_id');
     const clientSecret = await storage.getItem('spotify_client_secret');
     const codeData = await spotifyAuthModel.checkForAuthCode();
@@ -91,7 +93,11 @@ export async function initSpotify(): Promise<void> {
                 refresh_token: refreshToken ?? '',
                 expires: Date.now() + authData.expires_in * 1000,
             },
-            { deserializer: new EvenHubSpotifyDeserializer() },
+            {
+                deserializer: new EvenHubSpotifyDeserializer(),
+                beforeRequest: () => spotifyRateLimitModel.beforeRequest(),
+                afterRequest: (_url, _options, response) => spotifyRateLimitModel.observeResponse(response),
+            },
         );
 
         console.log('Spotify SDK initialized.');
@@ -124,6 +130,9 @@ export class SpotifyModel {
         try {
             result = await this.getSdk().player.getPlaybackState();
         } catch {
+            if (spotifyRateLimitModel.isBlocked()) {
+                return this.lastSong.songID !== '0' ? this.lastSong : song_placeholder;
+            }
             this.playbackAvailable = false;
             return song_placeholder;
         }
@@ -211,6 +220,7 @@ export class SpotifyModel {
     }
 
     async fetchNextTrack(): Promise<Song | undefined> {
+        if (spotifyRateLimitModel.isBlocked()) return undefined;
         try {
             const queue = await this.getSdk().player.getUsersQueue();
             const next = queue?.queue?.[0];

@@ -17,7 +17,11 @@ class PollingPresenter {
         if (this.isPolling) return;
         this.isPolling = true;
         this.lastFrameTime = performance.now();
-        this.pollAPIs();
+        if (spotifyPresenter.isSpotifyRateLimited()) {
+            viewPresenter.renderSpotifyRateLimitState();
+        } else {
+            this.pollAPIs();
+        }
         this.pollQuick();
     }
 
@@ -29,10 +33,28 @@ class PollingPresenter {
         this.quickTimeout = undefined;
     }
 
+    async retrySpotify(): Promise<void> {
+        if (!spotifyPresenter.isSpotifyRateLimited()) return;
+        viewPresenter.renderSpotifyRateLimitState();
+        const recovered = await spotifyPresenter.retrySpotifyAfterRateLimit();
+        viewPresenter.renderSpotifyRateLimitState();
+        if (!recovered || !this.isPolling) return;
+
+        this.apiTimeout = window.setTimeout(() => this.pollAPIs(), this.API_INTERVAL_MS);
+    }
+
     private async pollAPIs() {
         if (!this.isPolling) return;
+        if (spotifyPresenter.isSpotifyRateLimited()) {
+            viewPresenter.renderSpotifyRateLimitState();
+            return;
+        }
         try {
             await spotifyPresenter.pollSingle();
+            if (spotifyPresenter.isSpotifyRateLimited()) {
+                viewPresenter.renderSpotifyRateLimitState();
+                return;
+            }
             const song = spotifyPresenter.currentSong;
             if (song) {
                 await lyricsPresenter.updateLyrics(song);

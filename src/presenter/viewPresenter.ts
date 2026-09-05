@@ -5,7 +5,15 @@ import spotifyAuthModel from '../model/spotifyAuthModel';
 import Song from '../model/songModel';
 import { formatTime } from '../Scripts/formatTime';
 import playbackOffsetModel, { OFFSET_STEP_MS } from '../model/playbackOffsetModel';
-import localLyricsStore, { LocalLyricsFilter, LocalLyricsRecord, LocalLyricsSort, parsePlainLyrics } from '../model/localLyricsModel';
+import localLyricsStore, {
+    LocalLyricsFilter,
+    LocalLyricsRecord,
+    LocalLyricsSort,
+    SavedLyricsRecord,
+    savedLyricsStore,
+    createSavedLyricsRecord,
+    parsePlainLyrics,
+} from '../model/localLyricsModel';
 import {
     createRecordFromLrcImport,
     getLrcMetadataWarnings,
@@ -14,6 +22,8 @@ import {
 import lyricsPresenter from './lyricsPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { requestImmediateViewRefresh } from '../view/GlassesView';
+import pollingPresenter from './pollingPresenter';
+import spotifyRateLimitModel from '../model/spotifyRateLimitModel';
 
 function escapeHtml(value: string): string {
     return value
@@ -23,6 +33,21 @@ function escapeHtml(value: string): string {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+
+type LibraryFilter = LocalLyricsFilter | 'saved';
+type LibraryEntry = {
+    kind: 'timing' | 'saved';
+    id: string;
+    spotifyTrackId: string;
+    title: string;
+    artist: string;
+    album: string;
+    status: 'draft' | 'complete' | 'saved';
+    format?: 'synced' | 'plain';
+    markedLines: number;
+    totalLines: number;
+    updatedAt: string;
+};
 
 export function showPlayerMessage(message: string): void {
     const target = document.getElementById('player-message');
@@ -34,10 +59,11 @@ class ViewPresenter {
     private lastBlobUrl?: string;
     private lastLyricsSyncEditing = false;
     private lrcImportMetadataConfirmed = false;
-    private libraryFilter: LocalLyricsFilter = 'all';
+    private libraryFilter: LibraryFilter = 'all';
     private librarySort: LocalLyricsSort = 'recent';
     private libraryPage = 0;
-    private libraryTrackId?: string;
+    private libraryEntry?: LibraryEntry;
+    private rateLimitRefreshTimeout?: number;
 
     constructor() { }
 
@@ -70,6 +96,11 @@ class ViewPresenter {
         document.getElementById('previous-track')?.addEventListener('click', async () => {
             await this.backTrack();
         });
+        document.getElementById('retry-spotify')?.addEventListener('click', async () => {
+            await pollingPresenter.retrySpotify();
+            this.renderSpotifyRateLimitState();
+        });
+        spotifyRateLimitModel.subscribe(() => this.renderSpotifyRateLimitState());
 
         document.getElementById('offset-decrease')?.addEventListener('click', () => {
             this.adjustPlaybackOffset(-OFFSET_STEP_MS);
@@ -87,6 +118,9 @@ class ViewPresenter {
             }
             this.renderLyricsSyncControls();
             await this.renderLocalLyricsLibrary();
+        });
+        document.getElementById('save-current-lyrics')?.addEventListener('click', async () => {
+            await this.saveCurrentRemoteLyrics();
         });
         document.getElementById('mark-lyrics-sync')?.addEventListener('click', async () => {
             if (await lyricsSyncPresenter.markCurrentLine()) {
@@ -125,7 +159,7 @@ class ViewPresenter {
             this.renderLocalLyricsLibrary();
         });
         document.querySelectorAll<HTMLButtonElement>('[data-library-filter]').forEach(button => button.addEventListener('click', () => {
-            this.libraryFilter = (button.dataset.libraryFilter || 'all') as LocalLyricsFilter;
+            this.libraryFilter = (button.dataset.libraryFilter || 'all') as LibraryFilter;
             this.libraryPage = 0;
             this.renderLocalLyricsLibrary();
         }));
@@ -179,14 +213,15 @@ class ViewPresenter {
         localLyricsList?.addEventListener('click', async event => {
             const button = (event.target as HTMLElement).closest('button[data-lyrics-action]') as HTMLButtonElement | null;
             const action = button?.dataset.lyricsAction;
-            const trackId = button?.dataset.trackId;
-            if (!action || !trackId) return;
-            await this.handleLocalLyricsAction(action, trackId);
+            const id = button?.dataset.lyricsId;
+            const kind = button?.dataset.lyricsKind as LibraryEntry['kind'] | undefined;
+            if (!action || !id || !kind) return;
+            await this.handleLibraryAction(action, { kind, id });
         });
-        document.getElementById('local-lyrics-detail-sync')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('sync', this.libraryTrackId));
-        document.getElementById('local-lyrics-detail-copy')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('copy', this.libraryTrackId));
-        document.getElementById('local-lyrics-detail-export')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('export', this.libraryTrackId));
-        document.getElementById('local-lyrics-detail-delete')?.addEventListener('click', () => this.libraryTrackId && this.handleLocalLyricsAction('delete', this.libraryTrackId));
+        document.getElementById('local-lyrics-detail-sync')?.addEventListener('click', () => this.libraryEntry && this.handleLibraryAction('sync', this.libraryEntry));
+        document.getElementById('local-lyrics-detail-copy')?.addEventListener('click', () => this.libraryEntry && this.handleLibraryAction('copy', this.libraryEntry));
+        document.getElementById('local-lyrics-detail-export')?.addEventListener('click', () => this.libraryEntry && this.handleLibraryAction('export', this.libraryEntry));
+        document.getElementById('local-lyrics-detail-delete')?.addEventListener('click', () => this.libraryEntry && this.handleLibraryAction('delete', this.libraryEntry));
         document.getElementById('close-local-lyrics-detail')?.addEventListener('click', () => this.closeLocalLyricsDetail());
 
         playbackOffsetModel.init().then(() => this.renderPlaybackOffset());
@@ -390,7 +425,9 @@ class ViewPresenter {
             setText('song-current-time', formatTime(song.progressSeconds));
             setText('song-total-time', `${formatTime(song.durationSeconds)}`);
             this.renderNavidromeClients();
+            this.renderSpotifyRateLimitState();
             this.renderLyricsSyncControls();
+            this.renderSaveRemoteLyricsControl();
 
             if (song.songID !== this.lastSongID) {
                 const imgElement = document.getElementById('album-art') as HTMLImageElement;
@@ -476,33 +513,71 @@ class ViewPresenter {
     }
 
     async renderLocalLyricsLibrary() {
-        const summaries = await localLyricsStore.listSummaries();
+        const [summaries, savedRecords] = await Promise.all([
+            localLyricsStore.listSummaries(),
+            savedLyricsStore.list(),
+        ]);
         const summary = document.getElementById('local-lyrics-summary');
         const draftCount = summaries.filter(record => record.status === 'draft').length;
         const completeCount = summaries.length - draftCount;
-        if (summary) summary.textContent = `${summaries.length} local lyrics · ${draftCount} drafts · ${completeCount} complete`;
+        if (summary) summary.textContent = `${summaries.length + savedRecords.length} local lyrics · ${draftCount} drafts · ${completeCount} complete · ${savedRecords.length} saved`;
 
         const popup = document.getElementById('local-lyrics-library-popup');
         if (!popup || popup.style.display === 'none') return;
         const list = document.getElementById('local-lyrics-list');
         const search = (document.getElementById('local-lyrics-search') as HTMLInputElement | null)?.value ?? '';
-        const page = await localLyricsStore.getPage(search, this.libraryFilter, this.librarySort, this.libraryPage);
-        this.libraryPage = page.page;
+        const normalizedSearch = search.normalize('NFKD').toLocaleLowerCase().replace(/\p{M}/gu, '');
+        const entries: LibraryEntry[] = [
+            ...summaries.map(record => ({
+                kind: 'timing' as const,
+                id: record.spotifyTrackId,
+                spotifyTrackId: record.spotifyTrackId,
+                title: record.title,
+                artist: record.artist,
+                album: record.album,
+                status: record.status,
+                markedLines: record.markedLines,
+                totalLines: record.totalLines,
+                updatedAt: record.updatedAt,
+            })),
+            ...savedRecords.map(record => ({
+                kind: 'saved' as const,
+                id: record.id,
+                spotifyTrackId: record.spotifyTrackId,
+                title: record.title,
+                artist: record.artist,
+                album: record.album,
+                status: 'saved' as const,
+                format: record.format,
+                markedLines: 0,
+                totalLines: parsePlainLyrics(record.plainLyrics).length,
+                updatedAt: record.savedAt,
+            })),
+        ]
+            .filter(record => this.libraryFilter === 'all' || record.status === this.libraryFilter)
+            .filter(record => !normalizedSearch || `${record.title} ${record.artist} ${record.album}`.normalize('NFKD').toLocaleLowerCase().replace(/\p{M}/gu, '').includes(normalizedSearch))
+            .sort((left, right) => this.librarySort === 'title'
+                ? left.title.localeCompare(right.title, undefined, { sensitivity: 'base' }) || left.artist.localeCompare(right.artist, undefined, { sensitivity: 'base' })
+                : right.updatedAt.localeCompare(left.updatedAt));
+        const pageSize = 20;
+        const totalPages = Math.max(1, Math.ceil(entries.length / pageSize));
+        this.libraryPage = Math.min(Math.max(0, this.libraryPage), totalPages - 1);
+        const pageItems = entries.slice(this.libraryPage * pageSize, (this.libraryPage + 1) * pageSize);
         const pageSummary = document.getElementById('local-lyrics-page-summary');
         const previous = document.getElementById('local-lyrics-page-previous') as HTMLButtonElement | null;
         const next = document.getElementById('local-lyrics-page-next') as HTMLButtonElement | null;
         document.querySelectorAll<HTMLButtonElement>('[data-library-filter]').forEach(button => {
-            const value = button.dataset.libraryFilter as LocalLyricsFilter;
+            const value = button.dataset.libraryFilter as LibraryFilter;
             button.classList.toggle('accent', value === this.libraryFilter);
         });
-        if (pageSummary) pageSummary.textContent = page.totalItems === 0 ? 'No local lyrics found.' : `${page.totalItems} results · Page ${page.page + 1} of ${page.totalPages}`;
-        if (previous) previous.disabled = page.page === 0;
-        if (next) next.disabled = page.page >= page.totalPages - 1;
+        if (pageSummary) pageSummary.textContent = entries.length === 0 ? 'No local lyrics found.' : `${entries.length} results · Page ${this.libraryPage + 1} of ${totalPages}`;
+        if (previous) previous.disabled = this.libraryPage === 0;
+        if (next) next.disabled = this.libraryPage >= totalPages - 1;
         if (!list) return;
-        list.innerHTML = page.items.map(record => {
-            const progress = `${record.markedLines}/${record.totalLines} lines`;
+        list.innerHTML = pageItems.map(record => {
+            const progress = record.kind === 'saved' ? `${record.format} lyrics` : `${record.markedLines}/${record.totalLines} lines`;
             return `
-                <button class="local-lyrics-card" data-lyrics-action="details" data-track-id="${escapeHtml(record.spotifyTrackId)}">
+                <button class="local-lyrics-card" data-lyrics-action="details" data-lyrics-kind="${record.kind}" data-lyrics-id="${escapeHtml(record.id)}">
                     <p class="local-lyrics-card-title">${escapeHtml(record.title)}</p>
                     <p class="local-lyrics-card-meta">${escapeHtml(record.artist)} · ${record.status} · ${progress}</p>
                     <p class="local-lyrics-card-meta">Updated ${new Date(record.updatedAt).toLocaleDateString()}</p>
@@ -521,54 +596,131 @@ class ViewPresenter {
         if (popup) popup.style.display = 'none';
     }
 
-    private async openLocalLyricsDetail(trackId: string): Promise<void> {
-        const record = await localLyricsStore.get(trackId);
+    private async openLocalLyricsDetail(entry: Pick<LibraryEntry, 'kind' | 'id'>): Promise<void> {
+        const record = entry.kind === 'timing'
+            ? await localLyricsStore.get(entry.id)
+            : await savedLyricsStore.get(entry.id);
         if (!record) return;
-        this.libraryTrackId = trackId;
         const popup = document.getElementById('local-lyrics-detail-popup');
         const title = document.getElementById('local-lyrics-detail-title');
         const meta = document.getElementById('local-lyrics-detail-meta');
-        const sync = document.getElementById('local-lyrics-detail-sync');
+        const sync = document.getElementById('local-lyrics-detail-sync') as HTMLButtonElement | null;
         const copy = document.getElementById('local-lyrics-detail-copy') as HTMLButtonElement | null;
         const exportButton = document.getElementById('local-lyrics-detail-export') as HTMLButtonElement | null;
-        if (title) title.textContent = record.title;
-        if (meta) meta.textContent = `${record.artist} · ${record.album}\n${record.status} · ${record.lineTimestampsMs.length}/${parsePlainLyrics(record.plainLyrics).length} lines`;
-        if (sync) sync.textContent = record.status === 'complete' ? 'Re-time LRC' : 'Continue LRC';
-        if (copy) copy.style.display = record.status === 'complete' ? 'block' : 'none';
-        if (exportButton) exportButton.style.display = record.status === 'complete' ? 'block' : 'none';
+        if (entry.kind === 'timing') {
+            const timingRecord = record as LocalLyricsRecord;
+            this.libraryEntry = {
+                kind: 'timing', id: timingRecord.spotifyTrackId, spotifyTrackId: timingRecord.spotifyTrackId,
+                title: timingRecord.title, artist: timingRecord.artist, album: timingRecord.album, status: timingRecord.status,
+                markedLines: timingRecord.lineTimestampsMs.length, totalLines: parsePlainLyrics(timingRecord.plainLyrics).length, updatedAt: timingRecord.updatedAt,
+            };
+            if (title) title.textContent = timingRecord.title;
+            if (meta) meta.textContent = `${timingRecord.artist} · ${timingRecord.album}\n${timingRecord.status} · ${timingRecord.lineTimestampsMs.length}/${parsePlainLyrics(timingRecord.plainLyrics).length} lines`;
+            if (sync) { sync.textContent = timingRecord.status === 'complete' ? 'Re-time LRC' : 'Continue LRC'; sync.style.display = 'block'; }
+            if (copy) copy.style.display = timingRecord.status === 'complete' ? 'block' : 'none';
+            if (exportButton) exportButton.style.display = timingRecord.status === 'complete' ? 'block' : 'none';
+        } else {
+            const savedRecord = record as SavedLyricsRecord;
+            this.libraryEntry = {
+                kind: 'saved', id: savedRecord.id, spotifyTrackId: savedRecord.spotifyTrackId,
+                title: savedRecord.title, artist: savedRecord.artist, album: savedRecord.album, status: 'saved', format: savedRecord.format,
+                markedLines: 0, totalLines: parsePlainLyrics(savedRecord.plainLyrics).length, updatedAt: savedRecord.savedAt,
+            };
+            if (title) title.textContent = savedRecord.title;
+            if (meta) meta.textContent = `${savedRecord.artist} · ${savedRecord.album}\nsaved · ${savedRecord.format} lyrics`;
+            if (sync) { sync.textContent = 'Create Local LRC'; sync.style.display = savedRecord.format === 'plain' ? 'block' : 'none'; }
+            if (copy) { copy.textContent = savedRecord.format === 'synced' ? 'Copy LRC' : 'Copy Lyrics'; copy.style.display = 'block'; }
+            if (exportButton) exportButton.style.display = 'none';
+        }
         if (popup) popup.style.display = 'flex';
     }
 
     private closeLocalLyricsDetail(): void {
         const popup = document.getElementById('local-lyrics-detail-popup');
         if (popup) popup.style.display = 'none';
-        this.libraryTrackId = undefined;
+        this.libraryEntry = undefined;
     }
 
-    private async handleLocalLyricsAction(action: string, trackId: string): Promise<void> {
-        if (action === 'details') {
-            await this.openLocalLyricsDetail(trackId);
+    renderSpotifyRateLimitState() {
+        const retryButton = document.getElementById('retry-spotify') as HTMLButtonElement | null;
+        const actions = document.getElementById('player-message-actions');
+        const isLimited = spotifyPresenter.isSpotifyRateLimited();
+        const controlIds = ['previous-track', 'play-pause', 'skip-track'];
+
+        controlIds.forEach(id => {
+            const button = document.getElementById(id) as HTMLButtonElement | null;
+            if (button) button.disabled = isLimited;
+        });
+
+        if (this.rateLimitRefreshTimeout !== undefined) {
+            clearTimeout(this.rateLimitRefreshTimeout);
+            this.rateLimitRefreshTimeout = undefined;
+        }
+
+        if (!isLimited) {
+            if (actions) actions.style.display = 'none';
             return;
         }
-        const record = await localLyricsStore.get(trackId);
+
+        const state = spotifyPresenter.getSpotifyRateLimitState();
+        showPlayerMessage(spotifyPresenter.getSpotifyRateLimitMessage());
+        if (actions) actions.style.display = 'flex';
+        if (retryButton) retryButton.disabled = !state.canRetry;
+
+        if (state.blockedUntilMs && !state.canRetry) {
+            this.rateLimitRefreshTimeout = window.setTimeout(
+                () => this.renderSpotifyRateLimitState(),
+                Math.max(0, state.blockedUntilMs - Date.now()) + 50,
+            );
+        }
+    }
+
+    private async handleLibraryAction(action: string, entry: Pick<LibraryEntry, 'kind' | 'id'>): Promise<void> {
+        if (action === 'details') {
+            await this.openLocalLyricsDetail(entry);
+            return;
+        }
+        const record = entry.kind === 'timing'
+            ? await localLyricsStore.get(entry.id)
+            : await savedLyricsStore.get(entry.id);
         if (!record) return;
-        if (action === 'sync') {
-            if (spotifyPresenter.currentSong.songID !== trackId) {
+        if (action === 'sync' && entry.kind === 'timing') {
+            const timingRecord = record as LocalLyricsRecord;
+            if (spotifyPresenter.currentSong.songID !== timingRecord.spotifyTrackId) {
                 alert('Play this song in Spotify before resuming its sync session.');
                 return;
             }
-            if (await lyricsSyncPresenter.startSync(record.status === 'complete')) requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            if (await lyricsSyncPresenter.startSync(timingRecord.status === 'complete')) requestImmediateViewRefresh(spotifyPresenter.currentSong);
             this.closeLocalLyricsDetail();
-        } else if (action === 'export') {
-            this.downloadLrc(record);
+        } else if (action === 'sync' && entry.kind === 'saved') {
+            const savedRecord = record as SavedLyricsRecord;
+            if (savedRecord.format !== 'plain') return;
+            if (spotifyPresenter.currentSong.songID !== savedRecord.spotifyTrackId) {
+                alert('Play this song in Spotify before creating a local LRC.');
+                return;
+            }
+            if (lyricsPresenter.hasRemoteSyncedLyrics()) {
+                alert('Remote synced lyrics are already available for this song.');
+                return;
+            }
+            const existing = await localLyricsStore.get(savedRecord.spotifyTrackId);
+            if (existing && !window.confirm(`Replace the existing ${existing.status} local LRC for this song?`)) return;
+            if (await lyricsSyncPresenter.startSyncFromSavedPlainLyrics(savedRecord.plainLyrics)) requestImmediateViewRefresh(spotifyPresenter.currentSong);
+            this.closeLocalLyricsDetail();
+        } else if (action === 'export' && entry.kind === 'timing') {
+            this.downloadLrc(record as LocalLyricsRecord);
         } else if (action === 'copy') {
-            this.showLrcExport(record);
-            await this.copyText(record.syncedLyrics);
+            const savedRecord = entry.kind === 'saved' ? record as SavedLyricsRecord : null;
+            const timingRecord = entry.kind === 'timing' ? record as LocalLyricsRecord : null;
+            const text = savedRecord ? (savedRecord.format === 'synced' ? savedRecord.syncedLyrics : savedRecord.plainLyrics) : timingRecord!.syncedLyrics;
+            this.showLyricsCopy(record.title, text, savedRecord?.format === 'plain' ? 'Copy Lyrics' : 'Copy LRC');
+            await this.copyText(text);
         } else if (action === 'delete') {
             if (!window.confirm(`Delete local lyrics for ${record.title}?`)) return;
-            await localLyricsStore.remove(trackId);
+            if (entry.kind === 'timing') await localLyricsStore.remove((record as LocalLyricsRecord).spotifyTrackId);
+            else await savedLyricsStore.remove((record as SavedLyricsRecord).id);
             this.closeLocalLyricsDetail();
-            if (spotifyPresenter.currentSong.songID === trackId) {
+            if (entry.kind === 'timing' && spotifyPresenter.currentSong.songID === (record as LocalLyricsRecord).spotifyTrackId) {
                 await lyricsPresenter.refreshLyrics(spotifyPresenter.currentSong);
                 await lyricsSyncPresenter.prepareForSong(spotifyPresenter.currentSong, lyricsPresenter.getPlainLyrics(), lyricsPresenter.hasRemoteSyncedLyrics(), true);
             }
@@ -578,12 +730,50 @@ class ViewPresenter {
     }
 
     private showLrcExport(record: LocalLyricsRecord) {
+        this.showLyricsCopy(record.title, record.syncedLyrics, 'Copy LRC');
+    }
+
+    private showLyricsCopy(songTitle: string, text: string, actionLabel: 'Copy LRC' | 'Copy Lyrics'): void {
         const popup = document.getElementById('lrc-export-popup');
         const title = document.getElementById('lrc-export-title');
+        const copyButton = document.getElementById('copy-lrc');
         const textArea = document.getElementById('lrc-export-text') as HTMLTextAreaElement | null;
-        if (title) title.textContent = `Export ${record.title}`;
-        if (textArea) textArea.value = record.syncedLyrics;
+        if (title) title.textContent = `${actionLabel}: ${songTitle}`;
+        if (copyButton) copyButton.textContent = actionLabel;
+        if (textArea) textArea.value = text;
         if (popup) popup.style.display = 'flex';
+    }
+
+    private renderSaveRemoteLyricsControl(): void {
+        const button = document.getElementById('save-current-lyrics') as HTMLButtonElement | null;
+        const panel = document.getElementById('save-remote-lyrics-panel');
+        const status = document.getElementById('save-remote-lyrics-status');
+        if (!button || !panel) return;
+        const lyrics = lyricsPresenter.getRemoteLyricsForSaving();
+        panel.style.display = lyrics ? 'block' : 'none';
+        button.style.display = lyrics ? 'flex' : 'none';
+        button.textContent = lyrics?.syncedLyrics ? 'Save Lyrics' : 'Save Plain Lyrics';
+        button.disabled = !lyrics;
+        if (status) {
+            status.textContent = lyrics?.syncedLyrics
+                ? 'Save this synced web lyrics version to Local Lyrics Library.'
+                : 'Save these plain web lyrics to Local Lyrics Library.';
+        }
+    }
+
+    private async saveCurrentRemoteLyrics(): Promise<void> {
+        const song = spotifyPresenter.currentSong;
+        const lyrics = lyricsPresenter.getRemoteLyricsForSaving();
+        const record = lyrics ? createSavedLyricsRecord(song, lyrics) : null;
+        if (!record) {
+            showPlayerMessage('No remote lyrics are available to save.');
+            this.renderSaveRemoteLyricsControl();
+            return;
+        }
+        const saved = await savedLyricsStore.save(record);
+        showPlayerMessage(saved ? `Saved ${record.format} lyrics to Library.` : 'This lyrics version is already saved.');
+        this.renderSaveRemoteLyricsControl();
+        await this.renderLocalLyricsLibrary();
     }
 
     private openLrcImport(): void {

@@ -72,6 +72,9 @@
     <section id="player-message-panel" class="player-message-panel" aria-live="polite">
         <p class="player-message-title">Player messages</p>
         <p id="player-message">Ready</p>
+        <div id="player-message-actions" class="player-message-actions" style="display: none;">
+            <button class="small-button accent" id="retry-spotify" type="button">Retry Spotify</button>
+        </div>
     </section>
     <span class="container" id="playback-offset" >
         <button class="small-button" id="offset-decrease">
@@ -91,6 +94,15 @@
         <p id='current-lyric-line'></p>
         <p id='next-lyric-line'></p>
     </span>
+    <section id="save-remote-lyrics-panel" class="sync-panel save-remote-lyrics-panel" style="display: none;">
+        <div class="sync-panel-header">
+            <div>
+                <h2>Save Lyrics</h2>
+                <p id="save-remote-lyrics-status">Save this web lyrics version to Local Lyrics Library.</p>
+            </div>
+            <button class="small-button" id="save-current-lyrics" style="display: none;">Save Lyrics</button>
+        </div>
+    </section>
     <section id="lyrics-sync-panel" class="sync-panel">
         <div class="sync-panel-header">
             <div>
@@ -135,6 +147,7 @@
                 <button class="small-button accent" data-library-filter="all">All</button>
                 <button class="small-button" data-library-filter="draft">Drafts</button>
                 <button class="small-button" data-library-filter="complete">Complete</button>
+                <button class="small-button" data-library-filter="saved">Saved</button>
                 <select id="local-lyrics-sort"><option value="recent">Recently updated</option><option value="title">Title</option></select>
             </div>
             <p id="local-lyrics-page-summary" class="lrc-import-description" aria-live="polite"></p>
@@ -541,6 +554,11 @@
             overflow-wrap: anywhere;
         }
 
+        .player-message-actions {
+            margin-top: 10px;
+            justify-content: flex-end;
+        }
+
         .navidrome-client-picker {
             flex-direction: column;
             align-items: stretch;
@@ -666,6 +684,14 @@
             min-width: 180px;
         }
 
+        .save-remote-lyrics-panel #save-current-lyrics {
+            width: auto;
+            min-width: 220px;
+            height: 64px;
+            padding: 8px 16px;
+            font-size: 24px;
+        }
+
         .sync-active-controls,
         .local-lyrics-actions {
             display: flex;
@@ -729,6 +755,7 @@
         body.lyrics-sync-editing #player-message-panel,
         body.lyrics-sync-editing #playback-offset,
         body.lyrics-sync-editing #lyrics-container,
+        body.lyrics-sync-editing #save-remote-lyrics-panel,
         body.lyrics-sync-editing #local-lyrics-library,
         body.lyrics-sync-editing #small-button-container-1,
         body.lyrics-sync-editing #small-button-container-2 {
