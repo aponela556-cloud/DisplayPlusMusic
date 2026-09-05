@@ -22,6 +22,8 @@ import {
 import lyricsPresenter from './lyricsPresenter';
 import lyricsSyncPresenter from './lyricsSyncPresenter';
 import { requestImmediateViewRefresh } from '../view/GlassesView';
+import pollingPresenter from './pollingPresenter';
+import spotifyRateLimitModel from '../model/spotifyRateLimitModel';
 
 function escapeHtml(value: string): string {
     return value
@@ -61,6 +63,7 @@ class ViewPresenter {
     private librarySort: LocalLyricsSort = 'recent';
     private libraryPage = 0;
     private libraryEntry?: LibraryEntry;
+    private rateLimitRefreshTimeout?: number;
 
     constructor() { }
 
@@ -93,6 +96,11 @@ class ViewPresenter {
         document.getElementById('previous-track')?.addEventListener('click', async () => {
             await this.backTrack();
         });
+        document.getElementById('retry-spotify')?.addEventListener('click', async () => {
+            await pollingPresenter.retrySpotify();
+            this.renderSpotifyRateLimitState();
+        });
+        spotifyRateLimitModel.subscribe(() => this.renderSpotifyRateLimitState());
 
         document.getElementById('offset-decrease')?.addEventListener('click', () => {
             this.adjustPlaybackOffset(-OFFSET_STEP_MS);
@@ -417,6 +425,7 @@ class ViewPresenter {
             setText('song-current-time', formatTime(song.progressSeconds));
             setText('song-total-time', `${formatTime(song.durationSeconds)}`);
             this.renderNavidromeClients();
+            this.renderSpotifyRateLimitState();
             this.renderLyricsSyncControls();
             this.renderSaveRemoteLyricsControl();
 
@@ -630,6 +639,40 @@ class ViewPresenter {
         const popup = document.getElementById('local-lyrics-detail-popup');
         if (popup) popup.style.display = 'none';
         this.libraryEntry = undefined;
+    }
+
+    renderSpotifyRateLimitState() {
+        const retryButton = document.getElementById('retry-spotify') as HTMLButtonElement | null;
+        const actions = document.getElementById('player-message-actions');
+        const isLimited = spotifyPresenter.isSpotifyRateLimited();
+        const controlIds = ['previous-track', 'play-pause', 'skip-track'];
+
+        controlIds.forEach(id => {
+            const button = document.getElementById(id) as HTMLButtonElement | null;
+            if (button) button.disabled = isLimited;
+        });
+
+        if (this.rateLimitRefreshTimeout !== undefined) {
+            clearTimeout(this.rateLimitRefreshTimeout);
+            this.rateLimitRefreshTimeout = undefined;
+        }
+
+        if (!isLimited) {
+            if (actions) actions.style.display = 'none';
+            return;
+        }
+
+        const state = spotifyPresenter.getSpotifyRateLimitState();
+        showPlayerMessage(spotifyPresenter.getSpotifyRateLimitMessage());
+        if (actions) actions.style.display = 'flex';
+        if (retryButton) retryButton.disabled = !state.canRetry;
+
+        if (state.blockedUntilMs && !state.canRetry) {
+            this.rateLimitRefreshTimeout = window.setTimeout(
+                () => this.renderSpotifyRateLimitState(),
+                Math.max(0, state.blockedUntilMs - Date.now()) + 50,
+            );
+        }
     }
 
     private async handleLibraryAction(action: string, entry: Pick<LibraryEntry, 'kind' | 'id'>): Promise<void> {
