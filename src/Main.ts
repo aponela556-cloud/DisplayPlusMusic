@@ -21,6 +21,7 @@ async function main() {
 
     const currentSong = await spotifyPresenter.fetchCurrentSong();
     await fetchLyrics(currentSong);
+
 }
 
 main();
