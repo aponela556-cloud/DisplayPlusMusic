@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$PackageRoot = 'C:\Users\Shawn\OneDrive - 胖蔬商行\Coding\EVENG2Packages\DisplayLyricMusic'
 )
