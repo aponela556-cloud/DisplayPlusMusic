@@ -52,9 +52,18 @@ if (Test-Path -LiteralPath $destinationPackage) {
 New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
 Copy-Item -LiteralPath $sourcePackage -Destination $destinationPackage
 
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $sha256Bytes = $sha256.ComputeHash([System.IO.File]::ReadAllBytes($destinationPackage))
+    $sha256Hex = -join ($sha256Bytes | ForEach-Object { $_.ToString('x2') })
+}
+finally {
+    $sha256.Dispose()
+}
+
 [pscustomobject]@{
     Version = $version
     Commit = $commit
     Package = $destinationPackage
-    SHA256 = (Get-FileHash -LiteralPath $destinationPackage -Algorithm SHA256).Hash
+    SHA256 = $sha256Hex
 } | Format-List
